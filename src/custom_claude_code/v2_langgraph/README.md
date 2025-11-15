@@ -143,7 +143,7 @@ if tool_name == "task_tool":
    - 두 번째 메시지가 "[이전 대화 요약]"으로 시작하면 방금 압축한 것
    - 무한 루프 방지 (압축 → 또 압축 → ...)
 
-4. **단순화된 로직** (교육용):
+4. **단순화된 로직**:
    - HumanMessage는 항상 존재 → fallback 로직 불필요
    - 마지막 대화 턴 완전 유지 → Orphan ToolMessage 발생하지 않음
    - 불필요한 안전장치 제거로 코드 명확성 향상
@@ -168,7 +168,7 @@ uv run python -m custom_claude_code.v2_langgraph.main
 
 ## System Prompt 번역 규칙
 
-이 프로젝트는 교육용으로 system prompt를 한국어로 번역합니다.
+이 프로젝트는 system prompt를 한국어로 번역합니다.
 
 **규칙**:
 - 섹션 제목, XML 태그, Examples 레이블 → 영어 유지

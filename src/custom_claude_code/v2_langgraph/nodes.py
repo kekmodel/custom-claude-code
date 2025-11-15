@@ -542,7 +542,7 @@ async def compact_messages(
            - SystemMessage 다음 HumanMessage = LLM이 학습한 일반적인 패턴
            - AIMessage로 하면 비정상적인 순서 (SystemMessage → AIMessage)
 
-        4. **단순화된 로직** (교육용):
+        4. **단순화된 로직**:
            - HumanMessage는 항상 존재 (사용자가 먼저 질문) → fallback 불필요
            - 마지막 대화 턴 완전 유지 → Orphan ToolMessage 발생 안 함
 

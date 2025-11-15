@@ -77,37 +77,29 @@ def display_message(message):
 
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    📌 확장 팁: 커스텀 UI 추가
+    ✅ 이미 구현된 기능:
+        - 💭 Reasoning content 표시 (Extended Thinking 지원)
+        - 🔄 스트리밍 출력 (토큰 단위 실시간 표시)
+        - 🔧 도구 호출 표시 (tool_calls 포맷팅)
+        - 📝 마크다운 렌더링 (AI 응답 포맷팅)
 
-    **예시 1: Reasoning content 표시 (구현됨!)**
-    ```python
-    elif isinstance(message, AIMessage):
-        if hasattr(message, 'content_blocks'):
-            reasoning_blocks = [
-                block for block in message.content_blocks
-                if block.get("type") == "reasoning"
-            ]
-            if reasoning_blocks:
-                for block in reasoning_blocks:
-                    reasoning_text = block.get("reasoning", "")
-                    console.print(f"💭 Reasoning: {reasoning_text}")
-    ```
+    📌 확장 팁: 추가 가능한 UI
 
-    **예시 2: 토큰 사용량 표시**
+    **예시 1: 토큰 사용량 표시**
     ```python
     elif isinstance(message, AIMessage):
         if hasattr(message, "usage_metadata"):
             console.print(f"[dim]Tokens: {message.usage_metadata}[/dim]")
     ```
 
-    **예시 3: 다중 모달 출력 (이미지)**
+    **예시 2: 다중 모달 출력 (이미지)**
     ```python
     if hasattr(message, "image_url"):
         from rich.image import Image
         console.print(Image.from_url(message.image_url))
     ```
 
-    **예시 4: 도구 실행 시간 측정**
+    **예시 3: 도구 실행 시간 측정**
     ```python
     elif isinstance(message, ToolMessage):
         if hasattr(message, "execution_time"):
@@ -127,11 +119,8 @@ def display_message(message):
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     elif isinstance(message, AIMessage):
         # reasoning content가 있으면 먼저 표시
-        if hasattr(message, 'content_blocks'):
-            reasoning_blocks = [
-                block for block in message.content_blocks
-                if block.get("type") == "reasoning"
-            ]
+        if hasattr(message, "content_blocks"):
+            reasoning_blocks = [block for block in message.content_blocks if block.get("type") == "reasoning"]
             if reasoning_blocks:
                 for block in reasoning_blocks:
                     reasoning_text = block.get("reasoning", "")
@@ -140,7 +129,7 @@ def display_message(message):
                             Panel(
                                 Markdown(f"**💭 Reasoning:**\n\n{reasoning_text}"),
                                 title="[bold yellow]Thinking[/bold yellow]",
-                                border_style="yellow"
+                                border_style="yellow",
                             )
                         )
 
@@ -150,8 +139,7 @@ def display_message(message):
             if isinstance(message.content, list):
                 # content_blocks에서 text 타입만 추출
                 text_blocks = [
-                    block.get("text", "") for block in message.content_blocks
-                    if block.get("type") == "text"
+                    block.get("text", "") for block in message.content_blocks if block.get("type") == "text"
                 ]
                 content_text = "\n\n".join(text_blocks)
             else:
@@ -213,7 +201,7 @@ def display_todos(todos):
         Panel(
             todo_text,
             title=f"[bold magenta]Todos ({completed_count}/{len(todos)})[/bold magenta]",
-            border_style="magenta"
+            border_style="magenta",
         )
     )
 
@@ -478,19 +466,23 @@ async def run_conversation_loop():
                                         # Live 패널 시작
                                         if thinking_live is None:
                                             thinking_live = Live(
-                                                Panel(Markdown(current_thinking),
-                                                      title="[bold yellow]Thinking[/bold yellow]",
-                                                      border_style="yellow"),
+                                                Panel(
+                                                    Markdown(current_thinking),
+                                                    title="[bold yellow]Thinking[/bold yellow]",
+                                                    border_style="yellow",
+                                                ),
                                                 console=console,
-                                                refresh_per_second=10
+                                                refresh_per_second=10,
                                             )
                                             thinking_live.start()
                                         else:
                                             # 실시간 업데이트
                                             thinking_live.update(
-                                                Panel(Markdown(current_thinking),
-                                                      title="[bold yellow]Thinking[/bold yellow]",
-                                                      border_style="yellow")
+                                                Panel(
+                                                    Markdown(current_thinking),
+                                                    title="[bold yellow]Thinking[/bold yellow]",
+                                                    border_style="yellow",
+                                                )
                                             )
 
                                 # 일반 텍스트 스트리밍 (실시간 마크다운)
@@ -507,19 +499,23 @@ async def run_conversation_loop():
                                         # Live 패널 시작
                                         if content_live is None:
                                             content_live = Live(
-                                                Panel(Markdown(current_content),
-                                                      title="[bold blue]Assistant[/bold blue]",
-                                                      border_style="blue"),
+                                                Panel(
+                                                    Markdown(current_content),
+                                                    title="[bold blue]Assistant[/bold blue]",
+                                                    border_style="blue",
+                                                ),
                                                 console=console,
-                                                refresh_per_second=10
+                                                refresh_per_second=10,
                                             )
                                             content_live.start()
                                         else:
                                             # 실시간 업데이트
                                             content_live.update(
-                                                Panel(Markdown(current_content),
-                                                      title="[bold blue]Assistant[/bold blue]",
-                                                      border_style="blue")
+                                                Panel(
+                                                    Markdown(current_content),
+                                                    title="[bold blue]Assistant[/bold blue]",
+                                                    border_style="blue",
+                                                )
                                             )
 
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -543,17 +539,19 @@ async def run_conversation_loop():
                         if output.tool_calls:
                             for tc in output.tool_calls:
                                 # ExitPlanMode 특별 처리 - 계획 표시
-                                if tc['name'] == 'exit_plan_mode':
-                                    plan = tc['args'].get('plan', '')
+                                if tc["name"] == "exit_plan_mode":
+                                    plan = tc["args"].get("plan", "")
                                     if plan:
                                         console.print(
                                             Panel(
                                                 Markdown(plan),
                                                 title="[bold cyan]📋 Implementation Plan[/bold cyan]",
-                                                border_style="cyan"
+                                                border_style="cyan",
                                             )
                                         )
-                                        console.print("[dim]Awaiting your approval to proceed with implementation...[/dim]\n")
+                                        console.print(
+                                            "[dim]Awaiting your approval to proceed with implementation...[/dim]\n"
+                                        )
                                 else:
                                     console.print(f"[cyan]🔧 Calling tool:[/cyan] {tc['name']}")
 
@@ -614,119 +612,3 @@ if __name__ == "__main__":
 
     # 비동기 이벤트 루프 시작
     asyncio.run(main())
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 📌 다른 도메인으로 확장하기: UI 커스터마이징 예시
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-"""
-**예시 1: 웹 UI 통합 (FastAPI + WebSocket)**
-
-```python
-from fastapi import FastAPI, WebSocket
-from .graph import graph
-
-app = FastAPI()
-
-@app.websocket("/chat")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    messages = []
-
-    while True:
-        # 사용자 메시지 수신
-        user_input = await websocket.receive_text()
-        messages.append(HumanMessage(content=user_input))
-
-        # LangGraph 실행 및 스트리밍
-        async for event in graph.astream({"messages": messages, ...}):
-            for node_name, node_output in event.items():
-                if "messages" in node_output:
-                    for msg in node_output["messages"]:
-                        # WebSocket으로 실시간 전송!
-                        await websocket.send_json({
-                            "type": msg.__class__.__name__,
-                            "content": msg.content
-                        })
-```
-
-**예시 2: Slack Bot 통합**
-
-```python
-from slack_bolt.async_app import AsyncApp
-from .graph import graph_with_memory
-
-app = AsyncApp(token=os.environ["SLACK_BOT_TOKEN"])
-
-@app.message()
-async def handle_message(message, say):
-    user_id = message["user"]
-    config = {"configurable": {"thread_id": user_id}}  # 사용자별 대화 이력
-
-    messages = [HumanMessage(content=message["text"])]
-
-    async for event in graph_with_memory.astream(
-        {"messages": messages, ...},
-        config=config
-    ):
-        for node_name, node_output in event.items():
-            if "messages" in node_output:
-                for msg in node_output["messages"]:
-                    if isinstance(msg, AIMessage):
-                        await say(msg.content)  # Slack에 응답
-```
-
-**예시 3: Discord Bot**
-
-```python
-import discord
-from .graph import graph_with_memory
-
-client = discord.Client(intents=discord.Intents.default())
-
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-
-    config = {"configurable": {"thread_id": str(message.channel.id)}}
-    messages = [HumanMessage(content=message.content)]
-
-    async for event in graph_with_memory.astream(
-        {"messages": messages, ...},
-        config=config
-    ):
-        for node_name, node_output in event.items():
-            if "messages" in node_output:
-                for msg in node_output["messages"]:
-                    if isinstance(msg, AIMessage) and msg.content:
-                        await message.channel.send(msg.content)
-```
-
-**예시 4: GUI (Gradio)**
-
-```python
-import gradio as gr
-from .graph import graph
-
-async def chat(message, history):
-    messages = []
-    for h in history:
-        messages.append(HumanMessage(content=h[0]))
-        messages.append(AIMessage(content=h[1]))
-    messages.append(HumanMessage(content=message))
-
-    response = ""
-    async for event in graph.astream({"messages": messages, ...}):
-        for node_name, node_output in event.items():
-            if "messages" in node_output:
-                for msg in node_output["messages"]:
-                    if isinstance(msg, AIMessage):
-                        response += msg.content
-
-    return response
-
-demo = gr.ChatInterface(chat)
-demo.launch()
-```
-"""
