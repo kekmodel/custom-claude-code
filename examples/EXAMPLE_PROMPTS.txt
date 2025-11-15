@@ -1,0 +1,284 @@
+🎯 READY-TO-USE EXAMPLE PROMPTS
+Copy and paste these into any version!
+
+================================================================================
+📚 BASIC TOOL USAGE (단일 Tool 사용)
+================================================================================
+
+1️⃣ READ FILE
+Read the README.md file and tell me what this project is about in 3 sentences.
+
+2️⃣ SEARCH FILES
+Find all Python files in the src directory that contain the word "subagent".
+
+3️⃣ SEARCH CODE
+Use grep to find all functions that use "async def" in the v1_openai directory.
+
+4️⃣ CREATE FILE
+Create a new file called NOTES.md with a bullet list of the 4 versions in this project.
+
+5️⃣ EDIT FILE
+Read the launcher.py file, find the line with "Path", and remove that unused import.
+
+6️⃣ RUN COMMAND
+Run "ls -la src/custom_claude_code" to show all the version directories.
+
+================================================================================
+🔧 MULTI-TOOL WORKFLOWS (여러 Tool 조합)
+================================================================================
+
+7️⃣ ANALYZE AND DOCUMENT
+First, find all README files in this project using glob.
+Then read each one and create a summary document called ALL_READMES_SUMMARY.md.
+
+8️⃣ FIND AND FIX
+Use grep to find all occurrences of "gpt-4o" in the codebase.
+For each file, check if it should be "claude-haiku-4-5" instead.
+If yes, make the change using edit.
+
+9️⃣ TEST AND VERIFY
+Create a simple test file tests/test_example.py that tests the calculate_cost function.
+Then run it with pytest and show me the results.
+
+🔟 REFACTOR PATTERN
+Find all files that define a "console = Console()" variable.
+Read them to see if we can extract this to a common location.
+Create a plan for the refactoring.
+
+================================================================================
+🤖 SUBAGENT USAGE (Task Tool)
+================================================================================
+
+1️⃣1️⃣ EXPLORE AGENT - Project Structure
+Use the Explore agent to:
+1. Find all Python files in the project
+2. Categorize them by version (v1, v2, v3, v4)
+3. Give me a summary of how many files and lines of code in each version
+
+1️⃣2️⃣ EXPLORE AGENT - Find Patterns
+Use the Explore agent to search the entire codebase for any TODO or FIXME comments.
+List them all with file names and line numbers.
+
+1️⃣3️⃣ PLAN AGENT - New Feature
+I want to add a "dry run" mode to the launcher that simulates running a prompt
+without actually calling the API. Use the Plan agent to create a detailed
+implementation plan with specific steps.
+
+1️⃣4️⃣ PLAN AGENT - Refactoring
+Use the Plan agent to analyze the tool implementations across all 4 versions
+and create a plan for extracting common code into a shared module.
+
+1️⃣5️⃣ GENERAL AGENT - Automated Task
+Use the general-purpose agent to:
+1. Find all test files
+2. Run them all
+3. Create a test report showing pass/fail status
+4. If any failed, show the error messages
+
+================================================================================
+🚀 COMPLEX WORKFLOWS (Multi-turn, Multi-agent)
+================================================================================
+
+1️⃣6️⃣ COMPLETE FEATURE IMPLEMENTATION
+I want to add cost tracking to v1. Here's what I need:
+
+Step 1: Use the Plan agent to create an implementation plan
+Step 2: Read the current v1/main.py to understand the structure
+Step 3: Add a calculate_cost() function
+Step 4: Modify stream_assistant_response() to track usage
+Step 5: Update the conversation loop to display costs
+Step 6: Test it with a simple prompt
+Step 7: Create documentation for the new feature
+
+Let's start with Step 1.
+
+1️⃣7️⃣ COMPREHENSIVE ANALYSIS
+I want a complete analysis of this project:
+
+1. Use Explore agent to map out the entire project structure
+2. For each version, use Read to understand the main implementation approach
+3. Create a comparison document that explains:
+   - What makes each version unique
+   - Pros and cons of each approach
+   - When to use which version
+4. Save this as IMPLEMENTATION_COMPARISON.md
+
+1️⃣8️⃣ QUALITY IMPROVEMENT WORKFLOW
+Let's improve the code quality:
+
+1. Use Explore agent to find all files with TODO comments
+2. For each TODO, use Read to understand the context
+3. Use Plan agent to prioritize which TODOs should be addressed first
+4. For the top 3 TODOs, either:
+   - Implement the fix if simple
+   - Create a detailed plan if complex
+5. Create a QUALITY_REPORT.md summarizing what was done
+
+1️⃣9️⃣ DOCUMENTATION GENERATION
+Create comprehensive documentation:
+
+1. Use Explore to find all main.py files across versions
+2. Read each one to understand the conversation loop implementation
+3. Use Plan agent to design a documentation structure
+4. Create individual docs for each version explaining:
+   - How the conversation loop works
+   - How tools are integrated
+   - How subagents are implemented
+5. Create a master index document
+
+2️⃣0️⃣ COMPLETE REFACTORING PROJECT
+Let's refactor the tool implementations:
+
+Phase 1: Analysis
+- Use Explore to find all tool implementations
+- Compare them to identify duplication
+
+Phase 2: Planning
+- Use Plan agent to design a common tools module
+- Decide on the API design
+
+Phase 3: Implementation
+- Create common/tools_core.py
+- Extract common tool logic
+- Update each version to use the common module
+
+Phase 4: Testing
+- Run existing tests
+- Create new tests for the common module
+- Verify all versions still work
+
+Phase 5: Documentation
+- Update READMEs
+- Add migration guide
+
+Let's start with Phase 1.
+
+================================================================================
+💡 ADVANCED PROMPTS (Creative & Complex)
+================================================================================
+
+2️⃣1️⃣ BENCHMARK AND COMPARE
+For each of the 4 versions, I want you to:
+1. Analyze the code complexity (lines, functions, abstractions)
+2. Estimate the learning curve for new developers
+3. Identify the main pros and cons
+4. Create a decision matrix table in BENCHMARK.md
+
+2️⃣2️⃣ AUTOMATED CODE REVIEW
+Act as a code reviewer. Use the Explore agent to:
+1. Find all Python files modified in the last session
+2. For each file, check for:
+   - Unused imports
+   - Missing docstrings
+   - Code that could be simplified
+3. Create a CODE_REVIEW.md with findings
+4. For simple fixes, make them automatically
+
+2️⃣3️⃣ CROSS-VERSION FEATURE PORT
+The cost tracking feature exists in v1. Use the Plan agent to create a plan
+for porting it to v2, v3, and v4, accounting for the different architectures.
+Then implement it for v4 (the simplest one).
+
+2️⃣4️⃣ INTERACTIVE TUTORIAL CREATION
+Create an interactive tutorial for new users:
+1. Analyze the project to understand key concepts
+2. Design a step-by-step tutorial with exercises
+3. Create TUTORIAL.md with:
+   - Beginner exercises (single tool usage)
+   - Intermediate exercises (multi-tool workflows)
+   - Advanced exercises (subagent usage)
+4. Include expected outputs for each exercise
+
+2️⃣5️⃣ PERFORMANCE OPTIMIZATION AUDIT
+Use a combination of tools and agents to:
+1. Identify potential performance bottlenecks
+2. Find duplicate code that could be cached
+3. Suggest optimizations
+4. Implement the top 3 easiest optimizations
+5. Create before/after benchmarks
+
+================================================================================
+🎓 LEARNING EXERCISES (Step-by-step)
+================================================================================
+
+BEGINNER EXERCISE 1: File Operations
+1. Read launcher.py
+2. Count how many import statements it has
+3. Create a file IMPORTS_ANALYSIS.txt listing all imports
+
+BEGINNER EXERCISE 2: Search and Report
+1. Use glob to find all .md files
+2. Read each one
+3. Create a table showing filename and word count
+
+INTERMEDIATE EXERCISE 1: Refactoring
+1. Find all files with duplicate error handling code
+2. Extract it to a common function
+3. Test that everything still works
+
+INTERMEDIATE EXERCISE 2: Feature Addition
+1. Add a --verbose flag to launcher.py
+2. Make it print debug information
+3. Test with each version
+
+ADVANCED EXERCISE 1: Multi-Agent Workflow
+1. Use Explore to find complex functions (>50 lines)
+2. Use Plan to design how to break them down
+3. Use General agent to implement the refactoring
+4. Verify with tests
+
+ADVANCED EXERCISE 2: Complete Feature
+Implement a "prompt library" feature:
+1. Users can save frequently used prompts
+2. Load and reuse them later
+3. Works across all versions
+4. Has tests and documentation
+
+================================================================================
+🔍 DEBUGGING PROMPTS
+================================================================================
+
+DEBUG 1: Import Error
+I'm getting "ModuleNotFoundError: No module named 'X'".
+Find which file is trying to import it and fix the import statement.
+
+DEBUG 2: Syntax Error
+Use grep to find all files with print statements that might have syntax errors.
+Check each one and fix any issues.
+
+DEBUG 3: Logic Error
+The calculate_cost function seems to give wrong results.
+Read the function, analyze the logic, create test cases, and fix any bugs.
+
+DEBUG 4: Performance Issue
+The Explore agent seems slow. Analyze its implementation and suggest optimizations.
+
+================================================================================
+📊 REPORTING PROMPTS
+================================================================================
+
+REPORT 1: Project Statistics
+Generate a comprehensive project statistics report including:
+- Total lines of code per version
+- Number of files per version
+- Number of functions/classes
+- Test coverage estimate
+
+REPORT 2: Code Quality Report
+Analyze code quality across all versions:
+- Consistent naming conventions?
+- Proper error handling?
+- Adequate documentation?
+- Test coverage?
+
+REPORT 3: Feature Comparison Matrix
+Create a detailed comparison showing which features are implemented in which versions.
+
+================================================================================
+
+💡 TIP: Start with simple prompts (1-10) to get familiar with the tools.
+Then progress to complex workflows (16-25) that combine multiple tools and agents.
+
+🎯 Each prompt is designed to be copy-paste ready. Just paste it into the launcher!
+
+🚀 Have fun exploring the 4 versions!

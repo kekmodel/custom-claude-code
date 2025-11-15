@@ -1,0 +1,58 @@
+{
+  "count": 3,
+  "tools": [
+    {
+      "name": "Read",
+      "description": "Reads a file from the local filesystem. You can access any file directly by using this tool.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "The absolute path to the file to read"
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "Write",
+      "description": "Writes a file to the local filesystem.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "The absolute path to the file to write"
+          },
+          "content": {
+            "type": "string",
+            "description": "The content to write to the file"
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "Bash",
+      "description": "Executes a bash command in a persistent shell session.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The command to execute"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    }
+  ]
+}

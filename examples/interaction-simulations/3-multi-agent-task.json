@@ -1,0 +1,390 @@
+{
+  "scenario": "Multi-Agent System with Task Tool",
+  "description": "코드베이스 분석 후 리팩토링 - Explore Agent와 Plan Agent 사용",
+  "architecture": {
+    "main_agent": "사용자와 직접 대화하는 메인 에이전트",
+    "explore_agent": "코드베이스를 탐색하는 서브에이전트 (독립 프로세스)",
+    "plan_agent": "계획을 수립하는 서브에이전트 (독립 프로세스)"
+  },
+  "conversation": [
+    {
+      "turn": 1,
+      "agent": "main",
+      "message": "User: 코드베이스에서 중복 코드를 찾아서 리팩토링해줘",
+      "context": {
+        "messages": [
+          {"role": "user", "content": "코드베이스에서 중복 코드를 찾아서 리팩토링해줘"}
+        ]
+      }
+    },
+    {
+      "turn": 2,
+      "agent": "main",
+      "message": "Claude (Main): Explore Agent를 실행합니다",
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "코드베이스를 분석하겠습니다. Explore Agent를 사용하여 중복 패턴을 찾겠습니다."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_task_explore",
+            "name": "Task",
+            "input": {
+              "subagent_type": "Explore",
+              "description": "Find duplicate code patterns",
+              "prompt": "Search the codebase (src/**/*.ts) for duplicate code patterns. Look for:\n1. Similar function implementations\n2. Repeated logic blocks\n3. Copy-pasted code with minor variations\n\nFocus on:\n- JSON parsing patterns\n- Directory creation patterns\n- Error handling patterns\n\nThoroughness: very thorough\n\nReturn a detailed report with file locations and suggestions."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "turn": 3,
+      "agent": "explore",
+      "subprocess": true,
+      "message": "Explore Agent 시작 (새로운 프로세스)",
+      "context": {
+        "system": "[Same 50,000+ tokens]",
+        "tools": "[Same 16 tools]",
+        "messages": [
+          {
+            "role": "user",
+            "content": "[Task tool의 prompt 내용]"
+          }
+        ]
+      },
+      "internal_conversation": [
+        {
+          "step": 1,
+          "action": "Glob",
+          "input": {"pattern": "src/**/*.ts"},
+          "output": ["src/utils/router.ts", "src/utils/status.ts", "src/server.ts", "...50개 파일"]
+        },
+        {
+          "step": 2,
+          "action": "Grep",
+          "input": {"pattern": "JSON\\.parse", "type": "ts"},
+          "output": ["src/utils/router.ts:70", "src/utils/status.ts:45", "src/server.ts:21", "...12개 위치"]
+        },
+        {
+          "step": 3,
+          "action": "Read",
+          "input": {"file_path": "src/utils/router.ts", "offset": 65, "limit": 20},
+          "output": "[70-77줄: try { JSON.parse(...) } catch { return null }]"
+        },
+        {
+          "step": 4,
+          "action": "Read",
+          "input": {"file_path": "src/utils/status.ts", "offset": 40, "limit": 20},
+          "output": "[45-52줄: try { JSON.parse(...) } catch { return null }]"
+        },
+        {
+          "step": 5,
+          "action": "Grep",
+          "input": {"pattern": "fs\\.existsSync.*fs\\.mkdirSync", "type": "ts", "multiline": true},
+          "output": ["src/utils/router.ts:192", "src/utils/logCleanup.ts:23", "src/index.ts:31"]
+        },
+        {
+          "step": 6,
+          "action": "Analysis",
+          "output": "중복 패턴 발견:\n1. JSON.parse with error handling (3곳)\n2. Directory creation (3곳)"
+        }
+      ],
+      "final_report": {
+        "findings": [
+          {
+            "pattern": "JSON parsing with error handling",
+            "occurrences": 3,
+            "locations": [
+              "src/utils/router.ts:70-77",
+              "src/utils/status.ts:45-52",
+              "src/server.ts:21-28"
+            ],
+            "code_example": "try {\n  const obj = JSON.parse(str);\n  return obj;\n} catch (e) {\n  return null;\n}",
+            "suggestion": "Create a shared `parseJSON(str: string): any` utility function in src/utils/json.ts"
+          },
+          {
+            "pattern": "Directory creation with existence check",
+            "occurrences": 3,
+            "locations": [
+              "src/utils/router.ts:192",
+              "src/utils/logCleanup.ts:23",
+              "src/index.ts:31"
+            ],
+            "code_example": "if (!fs.existsSync(dir)) {\n  fs.mkdirSync(dir, { recursive: true });\n}",
+            "suggestion": "Create a shared `ensureDir(path: string): void` utility function in src/utils/fs.ts"
+          }
+        ]
+      }
+    },
+    {
+      "turn": 4,
+      "agent": "main",
+      "message": "Claude (Main): Explore Agent 결과 받음",
+      "tool_result": {
+        "tool_use_id": "toolu_task_explore",
+        "content": "[Explore Agent의 detailed report...]"
+      }
+    },
+    {
+      "turn": 5,
+      "agent": "main",
+      "message": "Claude (Main): Plan Agent 실행",
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "중복 코드 패턴을 발견했습니다:\n\n1. JSON parsing (3곳)\n2. Directory creation (3곳)\n\n이제 리팩토링 계획을 수립하겠습니다."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_task_plan",
+            "name": "Task",
+            "input": {
+              "subagent_type": "Plan",
+              "description": "Create refactoring plan",
+              "prompt": "Based on the duplicate code findings below, create a detailed refactoring plan:\n\n[Explore Agent의 report 전체 내용...]\n\nCreate a step-by-step implementation plan:\n1. Create utility functions\n2. Replace duplicates\n3. Test changes\n\nProvide specific file paths and code examples."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "turn": 6,
+      "agent": "plan",
+      "subprocess": true,
+      "message": "Plan Agent 시작 (새로운 프로세스)",
+      "context": {
+        "system": "[Same 50,000+ tokens]",
+        "tools": "[Same 16 tools]",
+        "messages": [
+          {
+            "role": "user",
+            "content": "[Task tool의 prompt + Explore report]"
+          }
+        ]
+      },
+      "internal_conversation": [
+        {
+          "step": 1,
+          "action": "Read",
+          "input": {"file_path": "src/utils/router.ts", "offset": 65, "limit": 20},
+          "purpose": "Understand context around line 70-77"
+        },
+        {
+          "step": 2,
+          "action": "Read",
+          "input": {"file_path": "src/utils/status.ts", "offset": 40, "limit": 20},
+          "purpose": "Understand context around line 45-52"
+        },
+        {
+          "step": 3,
+          "action": "Analysis",
+          "output": "Plan creation based on findings and code context"
+        },
+        {
+          "step": 4,
+          "action": "ExitPlanMode",
+          "plan": "[Detailed refactoring plan...]"
+        }
+      ],
+      "final_plan": {
+        "title": "Refactoring Plan: Remove Code Duplication",
+        "phases": [
+          {
+            "phase": 1,
+            "name": "Create Utility Functions",
+            "steps": [
+              {
+                "step": "1.1",
+                "action": "Create src/utils/json.ts",
+                "code": "export function parseJSON<T = any>(str: string): T | null {\n  try {\n    return JSON.parse(str) as T;\n  } catch (e) {\n    return null;\n  }\n}"
+              },
+              {
+                "step": "1.2",
+                "action": "Create src/utils/fs.ts",
+                "code": "import { existsSync, mkdirSync } from 'fs';\n\nexport function ensureDir(dirPath: string): void {\n  if (!existsSync(dirPath)) {\n    mkdirSync(dirPath, { recursive: true });\n  }\n}"
+              }
+            ]
+          },
+          {
+            "phase": 2,
+            "name": "Replace Duplicates",
+            "steps": [
+              {
+                "step": "2.1",
+                "file": "src/utils/router.ts",
+                "line": "70-77",
+                "old": "try { const obj = JSON.parse(str); return obj; } catch { return null; }",
+                "new": "import { parseJSON } from './json';\nreturn parseJSON(str);"
+              },
+              {
+                "step": "2.2",
+                "file": "src/utils/status.ts",
+                "line": "45-52",
+                "old": "[similar]",
+                "new": "[similar]"
+              },
+              {
+                "step": "2.3",
+                "file": "src/server.ts",
+                "line": "21-28",
+                "old": "[similar]",
+                "new": "[similar]"
+              },
+              {
+                "step": "2.4",
+                "file": "src/utils/router.ts",
+                "line": "192",
+                "old": "if (!fs.existsSync(debugDir)) { fs.mkdirSync(debugDir, {recursive: true}); }",
+                "new": "import { ensureDir } from './fs';\nensureDir(debugDir);"
+              }
+            ]
+          },
+          {
+            "phase": 3,
+            "name": "Test Changes",
+            "steps": [
+              {"step": "3.1", "action": "Run build", "command": "npm run build"},
+              {"step": "3.2", "action": "Manual verification", "notes": "Check if router still works"}
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "turn": 7,
+      "agent": "main",
+      "message": "Claude (Main): Plan Agent 결과 받음, 사용자 승인 요청",
+      "tool_result": {
+        "tool_use_id": "toolu_task_plan",
+        "content": "[Plan Agent의 detailed plan...]"
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "리팩토링 계획을 수립했습니다:\n\n## Phase 1: Utility Functions\n- json.ts 생성\n- fs.ts 생성\n\n## Phase 2: 중복 제거\n- router.ts 수정\n- status.ts 수정\n- server.ts 수정\n- logCleanup.ts 수정\n- index.ts 수정\n\n## Phase 3: 테스트\n- 빌드 실행\n- 수동 검증\n\n진행할까요?"
+          }
+        ],
+        "stop_reason": "end_turn"
+      }
+    },
+    {
+      "turn": 8,
+      "agent": "main",
+      "message": "User: 좋아, 진행해",
+      "context": {
+        "messages": [..., {"role": "user", "content": "좋아, 진행해"}]
+      }
+    },
+    {
+      "turn": 9,
+      "agent": "main",
+      "message": "Claude (Main): 구현 시작",
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "구현을 시작하겠습니다. 진행 상황을 추적하기 위해 Todo를 만들겠습니다."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_todo_001",
+            "name": "TodoWrite",
+            "input": {
+              "todos": [
+                {"content": "Create json.ts utility", "status": "in_progress", "activeForm": "Creating json.ts utility"},
+                {"content": "Create fs.ts utility", "status": "pending", "activeForm": "Creating fs.ts utility"},
+                {"content": "Replace JSON.parse in router.ts", "status": "pending", "activeForm": "Replacing JSON.parse in router.ts"},
+                {"content": "Replace JSON.parse in status.ts", "status": "pending", "activeForm": "Replacing JSON.parse in status.ts"},
+                {"content": "Replace JSON.parse in server.ts", "status": "pending", "activeForm": "Replacing JSON.parse in server.ts"},
+                {"content": "Replace dir creation in router.ts", "status": "pending", "activeForm": "Replacing dir creation in router.ts"},
+                {"content": "Replace dir creation in logCleanup.ts", "status": "pending", "activeForm": "Replacing dir creation in logCleanup.ts"},
+                {"content": "Replace dir creation in index.ts", "status": "pending", "activeForm": "Replacing dir creation in index.ts"},
+                {"content": "Run build", "status": "pending", "activeForm": "Running build"},
+                {"content": "Verify changes", "status": "pending", "activeForm": "Verifying changes"}
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "turn": 10,
+      "agent": "main",
+      "message": "Claude (Main): Write json.ts",
+      "response": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_write_001",
+            "name": "Write",
+            "input": {
+              "file_path": "/Users/jd/Documents/workspace/claude-code-router/src/utils/json.ts",
+              "content": "export function parseJSON<T = any>(str: string): T | null {\n  try {\n    return JSON.parse(str) as T;\n  } catch (e) {\n    return null;\n  }\n}\n\nexport function stringifyJSON(obj: any): string | null {\n  try {\n    return JSON.stringify(obj);\n  } catch (e) {\n    return null;\n  }\n}\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "turn": "11-20",
+      "agent": "main",
+      "message": "[각 단계 실행... Write, Edit, Edit, Edit, Edit, Edit, Edit, Bash]",
+      "summary": "각 파일을 수정하고, TodoWrite로 상태를 업데이트하며 진행"
+    },
+    {
+      "turn": 21,
+      "agent": "main",
+      "message": "Claude (Main): 완료!",
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "리팩토링을 완료했습니다!\n\n✅ 생성된 파일:\n- src/utils/json.ts\n- src/utils/fs.ts\n\n✅ 수정된 파일:\n- src/utils/router.ts (2개 중복 제거)\n- src/utils/status.ts (1개 중복 제거)\n- src/server.ts (1개 중복 제거)\n- src/utils/logCleanup.ts (1개 중복 제거)\n- src/index.ts (1개 중복 제거)\n\n✅ 빌드 성공\n\n총 6개의 중복 코드 패턴을 2개의 유틸리티 함수로 대체했습니다."
+          }
+        ],
+        "stop_reason": "end_turn"
+      }
+    }
+  ],
+  "agent_tree": {
+    "main": {
+      "id": "main_agent",
+      "type": "Main Conversation",
+      "tools_used": ["Task", "Task", "TodoWrite", "Write", "Edit", "Bash"],
+      "subagents": [
+        {
+          "id": "explore_agent",
+          "type": "Explore",
+          "subprocess": true,
+          "independent_context": true,
+          "tools_used": ["Glob", "Grep", "Read", "Read"],
+          "result": "Duplicate code findings report",
+          "returned_to": "main_agent"
+        },
+        {
+          "id": "plan_agent",
+          "type": "Plan",
+          "subprocess": true,
+          "independent_context": true,
+          "tools_used": ["Read", "Read", "ExitPlanMode"],
+          "result": "Detailed refactoring plan",
+          "returned_to": "main_agent"
+        }
+      ]
+    }
+  },
+  "summary": {
+    "total_turns": 21,
+    "main_agent_tools": 8,
+    "explore_agent_tools": 6,
+    "plan_agent_tools": 3,
+    "total_tool_calls": 17,
+    "subprocesses": 2,
+    "pattern": "User → Main → Explore → Main → Plan → Main → User → Main → Implementation"
+  }
+}

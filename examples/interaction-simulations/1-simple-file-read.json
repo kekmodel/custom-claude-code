@@ -1,0 +1,156 @@
+{
+  "scenario": "Simple File Read",
+  "description": "사용자가 단순히 파일을 읽으라고 요청하는 경우",
+  "conversation": [
+    {
+      "turn": 1,
+      "type": "request",
+      "from": "user",
+      "to": "claude",
+      "message": {
+        "role": "user",
+        "content": "package.json 파일을 읽어줘"
+      },
+      "full_request": {
+        "model": "claude-sonnet-4",
+        "max_tokens": 8192,
+        "messages": [
+          {
+            "role": "user",
+            "content": "package.json 파일을 읽어줘"
+          }
+        ],
+        "system": ["[50,000+ 토큰 시스템 프롬프트]"],
+        "tools": ["[16개 도구 정의, 15,000 토큰]"],
+        "metadata": {
+          "user_id": "user_abc123_session_xyz789"
+        }
+      },
+      "tokens": {
+        "input": 65100,
+        "cache_creation": 65000,
+        "cache_read": 0
+      }
+    },
+    {
+      "turn": 2,
+      "type": "response",
+      "from": "claude",
+      "to": "user",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "package.json 파일을 읽어보겠습니다."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_01ABC123",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/jd/Documents/workspace/claude-code-router/package.json"
+            }
+          }
+        ],
+        "stop_reason": "tool_use"
+      },
+      "tokens": {
+        "input": 65100,
+        "output": 87
+      },
+      "note": "Claude가 Read 도구를 사용하기로 결정"
+    },
+    {
+      "turn": 3,
+      "type": "tool_execution",
+      "from": "cli",
+      "to": "filesystem",
+      "tool": "Read",
+      "input": {
+        "file_path": "/Users/jd/Documents/workspace/claude-code-router/package.json"
+      },
+      "output": {
+        "content": "{\n  \"name\": \"@musistudio/claude-code-router\",\n  \"version\": \"1.0.66\",\n  \"description\": \"Use Claude Code without an Anthropics account and route it to another LLM provider\",\n  \"bin\": {\n    \"ccr\": \"dist/cli.js\"\n  },\n  \"scripts\": {\n    \"build\": \"node scripts/build.js\",\n    \"release\": \"npm run build && npm publish\"\n  },\n  ...\n}"
+      },
+      "note": "Claude Code CLI가 도구를 실행하고 결과를 얻음"
+    },
+    {
+      "turn": 4,
+      "type": "request",
+      "from": "user",
+      "to": "claude",
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01ABC123",
+            "content": "[파일 내용...]"
+          }
+        ]
+      },
+      "full_conversation": [
+        {"role": "user", "content": "package.json 파일을 읽어줘"},
+        {
+          "role": "assistant",
+          "content": [
+            {"type": "text", "text": "package.json 파일을 읽어보겠습니다."},
+            {
+              "type": "tool_use",
+              "id": "toolu_01ABC123",
+              "name": "Read",
+              "input": {"file_path": "/Users/jd/Documents/workspace/claude-code-router/package.json"}
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "toolu_01ABC123",
+              "content": "[파일 내용...]"
+            }
+          ]
+        }
+      ],
+      "tokens": {
+        "input": 850,
+        "cache_creation": 0,
+        "cache_read": 65000
+      },
+      "note": "도구 결과를 다시 Claude에게 전달. 시스템 프롬프트와 도구는 캐시에서 읽음!"
+    },
+    {
+      "turn": 5,
+      "type": "response",
+      "from": "claude",
+      "to": "user",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "package.json 파일의 내용을 확인했습니다.\n\n이 프로젝트는 `@musistudio/claude-code-router`로, Claude Code의 요청을 다양한 LLM 프로바이더로 라우팅하는 도구입니다. 현재 버전은 1.0.66이며, 주요 기능은:\n\n- `ccr` CLI 명령어 제공\n- 빌드 및 릴리즈 스크립트\n- 다양한 의존성 패키지\n\n필요한 다른 정보가 있으신가요?"
+          }
+        ],
+        "stop_reason": "end_turn"
+      },
+      "tokens": {
+        "input": 850,
+        "cache_read": 65000,
+        "output": 234
+      },
+      "note": "최종 응답. 캐시 덕분에 input 토큰은 850개만!"
+    }
+  ],
+  "summary": {
+    "total_turns": 5,
+    "tool_calls": 1,
+    "agents": 1,
+    "total_input_tokens": 66800,
+    "total_output_tokens": 321,
+    "cache_efficiency": "첫 요청 후 약 98% 절감"
+  }
+}

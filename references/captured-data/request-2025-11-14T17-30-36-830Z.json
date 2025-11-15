@@ -1,0 +1,113 @@
+{
+  "timestamp": "2025-11-14T17:30:36.831Z",
+  "model": "claude-sonnet-4",
+  "hasThinking": true,
+  "messagesCount": 1,
+  "systemPromptBlocks": 2,
+  "toolsCount": 3,
+  "toolNames": [
+    "Read",
+    "Write",
+    "Bash"
+  ],
+  "metadata": {
+    "user_id": "user_test123_session_xyz789"
+  },
+  "lastMessage": {
+    "role": "user",
+    "contentPreview": "이 프로젝트의 구조를 설명해줘"
+  },
+  "systemPromptLength": [
+    1077,
+    547
+  ],
+  "fullRequest": {
+    "model": "claude-sonnet-4",
+    "max_tokens": 8192,
+    "temperature": 1,
+    "thinking": {
+      "type": "enabled",
+      "budget_tokens": 10000
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "이 프로젝트의 구조를 설명해줘"
+      }
+    ],
+    "system": [
+      {
+        "type": "text",
+        "text": "You are Claude Code, Anthropic's official CLI for Claude.\nYou are an interactive CLI tool that helps users according to your \"Output Style\" below, which describes how you should respond to user queries. Use the instructions below and the tools available to you to assist the user.\n\nIMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes.\n\nIMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming.\n\n# Task Management\nYou have access to the TodoWrite tools to help you manage and plan tasks. Use these tools VERY frequently to ensure that you are tracking your tasks and giving the user visibility into your progress.\n\nIt is critical that you mark todos as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.\n\n[... 매우 긴 지침이 계속됨 ...]",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      },
+      {
+        "type": "text",
+        "text": "<env>\nWorking directory: /Users/jd/Documents/workspace/claude-code-router\nIs directory a git repo: Yes\nPlatform: darwin\nOS Version: Darwin 25.1.0\nToday's date: 2025-11-15\n</env>\n\nYou are powered by the model named Sonnet 4.5. The exact model ID is claude-sonnet-4-5-20250929.\nAssistant knowledge cutoff is January 2025.\n\n# Output Style: Explanatory\nYou are an interactive CLI tool that helps users with software engineering tasks. In addition to software engineering tasks, you should provide educational insights about the codebase along the way.",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ],
+    "tools": [
+      {
+        "name": "Read",
+        "description": "Reads a file from the local filesystem. You can access any file directly by using this tool.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "The absolute path to the file to read"
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "Write",
+        "description": "Writes a file to the local filesystem.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "The absolute path to the file to write"
+            },
+            "content": {
+              "type": "string",
+              "description": "The content to write to the file"
+            }
+          },
+          "required": [
+            "file_path",
+            "content"
+          ]
+        }
+      },
+      {
+        "name": "Bash",
+        "description": "Executes a bash command in a persistent shell session.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "The command to execute"
+            }
+          },
+          "required": [
+            "command"
+          ]
+        }
+      }
+    ],
+    "metadata": {
+      "user_id": "user_test123_session_xyz789"
+    }
+  }
+}

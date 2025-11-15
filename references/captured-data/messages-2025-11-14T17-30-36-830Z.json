@@ -1,0 +1,9 @@
+{
+  "count": 1,
+  "messages": [
+    {
+      "role": "user",
+      "content": "이 프로젝트의 구조를 설명해줘"
+    }
+  ]
+}
