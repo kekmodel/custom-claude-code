@@ -38,6 +38,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 from rich.console import Console
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 
@@ -78,21 +79,35 @@ def display_message(message):
 
     📌 확장 팁: 커스텀 UI 추가
 
-    **예시 1: 토큰 사용량 표시**
+    **예시 1: Reasoning content 표시 (구현됨!)**
+    ```python
+    elif isinstance(message, AIMessage):
+        if hasattr(message, 'content_blocks'):
+            reasoning_blocks = [
+                block for block in message.content_blocks
+                if block.get("type") == "reasoning"
+            ]
+            if reasoning_blocks:
+                for block in reasoning_blocks:
+                    reasoning_text = block.get("reasoning", "")
+                    console.print(f"💭 Reasoning: {reasoning_text}")
+    ```
+
+    **예시 2: 토큰 사용량 표시**
     ```python
     elif isinstance(message, AIMessage):
         if hasattr(message, "usage_metadata"):
             console.print(f"[dim]Tokens: {message.usage_metadata}[/dim]")
     ```
 
-    **예시 2: 다중 모달 출력 (이미지)**
+    **예시 3: 다중 모달 출력 (이미지)**
     ```python
     if hasattr(message, "image_url"):
         from rich.image import Image
         console.print(Image.from_url(message.image_url))
     ```
 
-    **예시 3: 도구 실행 시간 측정**
+    **예시 4: 도구 실행 시간 측정**
     ```python
     elif isinstance(message, ToolMessage):
         if hasattr(message, "execution_time"):
@@ -111,11 +126,42 @@ def display_message(message):
     # AI 응답: 파란색 패널 + 마크다운 렌더링
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     elif isinstance(message, AIMessage):
+        # reasoning content가 있으면 먼저 표시
+        if hasattr(message, 'content_blocks'):
+            reasoning_blocks = [
+                block for block in message.content_blocks
+                if block.get("type") == "reasoning"
+            ]
+            if reasoning_blocks:
+                for block in reasoning_blocks:
+                    reasoning_text = block.get("reasoning", "")
+                    if reasoning_text:
+                        console.print(
+                            Panel(
+                                Markdown(f"**💭 Reasoning:**\n\n{reasoning_text}"),
+                                title="[bold yellow]Thinking[/bold yellow]",
+                                border_style="yellow"
+                            )
+                        )
+
         # content가 있으면 표시 (빈 content는 스킵 - tool_calls만 있는 경우)
         if message.content:
-            console.print(
-                Panel(Markdown(message.content), title="[bold blue]Assistant[/bold blue]", border_style="blue")
-            )
+            # Extended thinking이 활성화되면 content가 list일 수 있음
+            if isinstance(message.content, list):
+                # content_blocks에서 text 타입만 추출
+                text_blocks = [
+                    block.get("text", "") for block in message.content_blocks
+                    if block.get("type") == "text"
+                ]
+                content_text = "\n\n".join(text_blocks)
+            else:
+                # 일반 문자열 content
+                content_text = message.content
+
+            if content_text:
+                console.print(
+                    Panel(Markdown(content_text), title="[bold blue]Assistant[/bold blue]", border_style="blue")
+                )
 
         # tool_calls가 있으면 도구 이름 표시
         if message.tool_calls:
@@ -129,6 +175,47 @@ def display_message(message):
         # 너무 긴 결과는 잘라서 표시
         result = message.content[:500] + "..." if len(message.content) > 500 else message.content
         console.print(f"[dim]  → Result: {result}[/dim]\n")
+
+
+def display_todos(todos):
+    """
+    ✅ Todo 목록을 체크박스 형식으로 표시
+
+    원래 순서 유지 (정렬하지 않음)
+    완료 여부만 체크박스로 표시 (☐/☒)
+
+    Args:
+        todos: List[Dict] - 각 todo는 content, status, activeForm 필드 포함
+    """
+    if not todos:
+        return
+
+    # 원래 순서대로 체크박스 형식으로 표시
+    lines = []
+    completed_count = 0
+
+    for todo in todos:
+        status = todo["status"]
+
+        if status == "completed":
+            lines.append(f"☒ {todo['content']}")
+            completed_count += 1
+        elif status == "in_progress":
+            # 진행 중일 때는 activeForm 사용
+            lines.append(f"☐ {todo['activeForm']}")
+        else:  # pending
+            lines.append(f"☐ {todo['content']}")
+
+    todo_text = "\n".join(lines)
+
+    # Rich Panel로 표시
+    console.print(
+        Panel(
+            todo_text,
+            title=f"[bold magenta]Todos ({completed_count}/{len(todos)})[/bold magenta]",
+            border_style="magenta"
+        )
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -332,48 +419,171 @@ async def run_conversation_loop():
             continue
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 3️⃣ 사용자 메시지 추가 및 표시
+        # 3️⃣ 사용자 메시지 추가 (표시는 prompt_session에서 이미 됨)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         user_message = HumanMessage(content=user_input)
         messages.append(user_message)
-        display_message(user_message)
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 4️⃣ LangGraph 실행 (스트리밍!)
+        # 4️⃣ LangGraph 실행 (토큰 단위 스트리밍!)
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         try:
             # recursion_limit: 무한 루프 방지 (최대 50번 노드 실행)
             config = {"recursion_limit": 50}
 
-            # graph.astream()으로 실시간 업데이트 수신
-            # - stream_mode="updates": 각 노드의 업데이트만 반환
-            # - 각 노드 실행 후 이벤트 발생 (agent → tools → agent → ...)
-            async for event in graph.astream(
-                {"messages": messages, "working_dir": working_dir, "depth": 0},
+            # 스트리밍 상태 추적
+            current_thinking = ""
+            current_content = ""
+            thinking_live = None
+            content_live = None
+            collected_messages = []
+
+            # graph.astream_events()로 토큰 단위 실시간 스트리밍
+            async for event in graph.astream_events(
+                {"messages": messages, "working_dir": working_dir, "depth": 0, "todos": None},
                 config=config,
-                stream_mode="updates",  # 노드별 업데이트만 (전체 상태 아님)
+                version="v2",
             ):
+                kind = event.get("event")
+                name = event.get("name")
+                data = event.get("data", {})
+
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                # 5️⃣ 각 노드의 업데이트 처리
+                # 노드 시작 (agent, tools 등)
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                if kind == "on_chain_start":
+                    tags = event.get("tags", [])
+                    if "agent" in tags or name == "agent":
+                        console.print(f"[dim](agent)[/dim]")
+                    elif "tools" in tags or name == "tools":
+                        console.print(f"[dim](tools)[/dim]")
 
-                # event 구조:
-                # {
-                #     "agent": {"messages": [AIMessage(...)]},
-                #     "tools": {"messages": [ToolMessage(...)]},
-                # }
-                for node_name, node_output in event.items():
-                    # 노드 이름 표시 (디버깅용)
-                    console.print(f"[dim]({node_name})[/dim]")
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # LLM 스트리밍 청크 (토큰 단위!)
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                elif kind == "on_chat_model_stream":
+                    chunk = data.get("chunk")
+                    if chunk and hasattr(chunk, "content"):
+                        # content_blocks에서 reasoning과 text 구분
+                        if hasattr(chunk, "content_blocks"):
+                            for block in chunk.content_blocks:
+                                block_type = block.get("type")
 
-                    # 새 메시지가 있으면 표시 및 히스토리 업데이트
-                    if "messages" in node_output:
-                        for msg in node_output["messages"]:
-                            display_message(msg)  # Rich 포맷으로 표시
-                            messages.append(msg)  # 히스토리에 추가
+                                # Thinking 스트리밍 (실시간 마크다운)
+                                if block_type == "reasoning":
+                                    reasoning = block.get("reasoning", "")
+                                    if reasoning:
+                                        current_thinking += reasoning
 
-                # 노드 실행이 끝나면 다음 이벤트 대기
-                # (graph가 자동으로 다음 노드 실행!)
+                                        # Live 패널 시작
+                                        if thinking_live is None:
+                                            thinking_live = Live(
+                                                Panel(Markdown(current_thinking),
+                                                      title="[bold yellow]Thinking[/bold yellow]",
+                                                      border_style="yellow"),
+                                                console=console,
+                                                refresh_per_second=10
+                                            )
+                                            thinking_live.start()
+                                        else:
+                                            # 실시간 업데이트
+                                            thinking_live.update(
+                                                Panel(Markdown(current_thinking),
+                                                      title="[bold yellow]Thinking[/bold yellow]",
+                                                      border_style="yellow")
+                                            )
+
+                                # 일반 텍스트 스트리밍 (실시간 마크다운)
+                                elif block_type == "text":
+                                    # Thinking 패널 닫기
+                                    if thinking_live is not None:
+                                        thinking_live.stop()
+                                        thinking_live = None
+
+                                    text = block.get("text", "")
+                                    if text:
+                                        current_content += text
+
+                                        # Live 패널 시작
+                                        if content_live is None:
+                                            content_live = Live(
+                                                Panel(Markdown(current_content),
+                                                      title="[bold blue]Assistant[/bold blue]",
+                                                      border_style="blue"),
+                                                console=console,
+                                                refresh_per_second=10
+                                            )
+                                            content_live.start()
+                                        else:
+                                            # 실시간 업데이트
+                                            content_live.update(
+                                                Panel(Markdown(current_content),
+                                                      title="[bold blue]Assistant[/bold blue]",
+                                                      border_style="blue")
+                                            )
+
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # LLM 응답 종료 - 메시지 수집
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                elif kind == "on_chat_model_end":
+                    # Live 패널 닫기
+                    if thinking_live is not None:
+                        thinking_live.stop()
+                        thinking_live = None
+                    if content_live is not None:
+                        content_live.stop()
+                        content_live = None
+
+                    # 완성된 메시지 저장
+                    output = data.get("output")
+                    if output and isinstance(output, AIMessage):
+                        collected_messages.append(output)
+
+                        # Tool calls 표시
+                        if output.tool_calls:
+                            for tc in output.tool_calls:
+                                # ExitPlanMode 특별 처리 - 계획 표시
+                                if tc['name'] == 'exit_plan_mode':
+                                    plan = tc['args'].get('plan', '')
+                                    if plan:
+                                        console.print(
+                                            Panel(
+                                                Markdown(plan),
+                                                title="[bold cyan]📋 Implementation Plan[/bold cyan]",
+                                                border_style="cyan"
+                                            )
+                                        )
+                                        console.print("[dim]Awaiting your approval to proceed with implementation...[/dim]\n")
+                                else:
+                                    console.print(f"[cyan]🔧 Calling tool:[/cyan] {tc['name']}")
+
+                    # 초기화
+                    current_thinking = ""
+                    current_content = ""
+
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # 노드 종료 - 메시지 히스토리 및 todos 업데이트
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                elif kind == "on_chain_end":
+                    tags = event.get("tags", [])
+                    output = data.get("output")
+
+                    # Tools 노드의 ToolMessage 및 todos 표시
+                    if ("tools" in tags or name == "tools") and output:
+                        # ToolMessage 표시
+                        if "messages" in output:
+                            for msg in output["messages"]:
+                                if isinstance(msg, ToolMessage):
+                                    result = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
+                                    console.print(f"[dim]  → Result: {result}[/dim]\n")
+                                    collected_messages.append(msg)
+
+                        # Todos 업데이트 표시
+                        if "todos" in output and output["todos"]:
+                            display_todos(output["todos"])
+
+            # 모든 메시지를 히스토리에 추가
+            messages.extend(collected_messages)
 
         except Exception as e:
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

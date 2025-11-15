@@ -28,6 +28,7 @@ TOOLS = [..., analyze_sentiment]
 ```
 """
 
+import fnmatch
 import json
 import os
 import subprocess
@@ -43,28 +44,23 @@ from langchain_core.tools import tool
 
 @tool
 def read_file(file_path: str, offset: Optional[int] = None, limit: Optional[int] = None) -> str:
-    """
-    📖 파일을 읽고 라인 번호와 함께 반환합니다.
+    """Reads a file from the local filesystem. You can access any file directly by using this tool.
 
-    이 도구는 LLM이 코드를 분석하거나 파일 내용을 확인할 때 사용합니다.
+    Usage:
+    - The file_path parameter must be an absolute path, not a relative path
+    - By default, it reads up to 2000 lines starting from the beginning of the file
+    - You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
+    - Any lines longer than 2000 characters will be truncated
+    - Results are returned using cat -n format, with line numbers starting at 1
+    - You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
 
     Args:
-        file_path: 읽을 파일의 절대 경로 (필수)
-        offset: 시작 라인 번호 (1부터 시작, 선택)
-        limit: 읽을 라인 수 (선택)
+        file_path: The absolute path to the file to read
+        offset: The line number to start reading from (1-based index). Only provide if the file is too large to read at once
+        limit: The number of lines to read. Only provide if the file is too large to read at once
 
     Returns:
-        라인 번호가 포함된 파일 내용 (cat -n 스타일)
-
-    Example:
-        read_file("/path/to/file.py", offset=10, limit=20)
-        → 10번째 줄부터 20줄 읽기
-
-    📌 확장 팁:
-    다른 파일 타입 지원을 추가할 수 있습니다:
-    - PDF 읽기: PyPDF2
-    - Excel 읽기: pandas
-    - 이미지 OCR: pytesseract
+        File content with line numbers (cat -n format)
     """
     if not os.path.isabs(file_path):
         raise ValueError(f"File path must be absolute, got: {file_path}")
@@ -94,15 +90,19 @@ def read_file(file_path: str, offset: Optional[int] = None, limit: Optional[int]
 
 @tool
 def write_file(file_path: str, content: str) -> str:
-    """
-    Write content to a file (creates new file or overwrites existing).
+    """Writes a file to the local filesystem.
+
+    Usage:
+    - This tool will overwrite the existing file if there is one at the provided path.
+    - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
+    - The file_path parameter must be an absolute path, not a relative path.
 
     Args:
-        file_path: Absolute path to the file to write
-        content: Content to write
+        file_path: The absolute path to the file to write (must be absolute, not relative)
+        content: The content to write to the file
 
     Returns:
-        Success message
+        Success message with file path and size
     """
     if not os.path.isabs(file_path):
         raise ValueError(f"File path must be absolute, got: {file_path}")
@@ -118,14 +118,20 @@ def write_file(file_path: str, content: str) -> str:
 
 @tool
 def edit_file(file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
-    """
-    Edit a file by replacing exact string matches.
+    """Performs exact string replacements in files.
+
+    Usage:
+    - You must use your `read_file` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
+    - When editing text from read_file output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: spaces + line number + tab. Everything after that tab is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
+    - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
+    - The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.
+    - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
 
     Args:
-        file_path: Absolute path to the file to edit
-        old_string: Exact string to replace
-        new_string: Replacement string
-        replace_all: Replace all occurrences (default: False, requires unique match)
+        file_path: The absolute path to the file to modify
+        old_string: The text to replace
+        new_string: The text to replace it with (must be different from old_string)
+        replace_all: Replace all occurrences of old_string (default false)
 
     Returns:
         Success message with number of replacements
@@ -166,15 +172,20 @@ def edit_file(file_path: str, old_string: str, new_string: str, replace_all: boo
 
 @tool
 def glob_files(pattern: str, path: Optional[str] = None) -> str:
-    """
-    Find files matching a glob pattern.
+    """Fast file pattern matching tool that works with any codebase size.
+
+    Usage:
+    - Supports glob patterns like "**/*.js" or "src/**/*.ts"
+    - Returns matching file paths sorted by modification time
+    - Use this tool when you need to find files by name patterns
+    - You can call multiple tools in a single response. It is always better to speculatively perform multiple searches in parallel if they are potentially useful.
 
     Args:
         pattern: Glob pattern (e.g., "**/*.ts", "src/**/*.py")
-        path: Directory to search in (default: current working directory)
+        path: Directory to search in (default: current working directory). IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior.
 
     Returns:
-        List of matching file paths
+        List of matching file paths sorted by modification time
     """
     search_path = path or os.getcwd()
     full_pattern = os.path.join(search_path, pattern)
@@ -191,14 +202,20 @@ def glob_files(pattern: str, path: Optional[str] = None) -> str:
 def grep_code(
     pattern: str, path: Optional[str] = None, glob: Optional[str] = None, case_insensitive: bool = False
 ) -> str:
-    """
-    Search for code using regex pattern.
+    """A powerful search tool built on ripgrep.
+
+    Usage:
+    - ALWAYS use grep_code for search tasks. NEVER invoke `grep` or `rg` as a Bash command.
+    - Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
+    - Filter files with glob parameter (e.g., "*.js", "**/*.tsx")
+    - Returns list of files containing matches by default
+    - You can call multiple tools in a single response. It is always better to speculatively perform multiple searches in parallel if they are potentially useful.
 
     Args:
-        pattern: Regex pattern to search for
-        path: File or directory to search in
-        glob: Glob pattern to filter files (e.g., "*.py")
-        case_insensitive: Case insensitive search
+        pattern: The regular expression pattern to search for in file contents
+        path: File or directory to search in (defaults to current working directory)
+        glob: Glob pattern to filter files (e.g., "*.py", "*.{ts,tsx}")
+        case_insensitive: Case insensitive search (default: False)
 
     Returns:
         List of files containing the pattern
@@ -227,7 +244,9 @@ def grep_code(
         matches = []
         for root, _, files in os.walk(search_path):
             for file in files:
-                if glob and not python_glob(file, glob):
+                # glob 패턴이 지정되었으면 파일명 필터링
+                # fnmatch: 파일명 패턴 매칭 (예: "*.py", "test_*.js")
+                if glob and not fnmatch.fnmatch(file, glob):
                     continue
                 file_path = os.path.join(root, file)
                 try:
@@ -247,12 +266,31 @@ def grep_code(
 
 @tool
 def run_bash(command: str, timeout: int = 30) -> str:
-    """
-    Execute a bash command.
+    """Executes a given bash command in a persistent shell session with optional timeout.
+
+    IMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.
+
+    Usage notes:
+    - Always quote file paths that contain spaces with double quotes (e.g., cd "path with spaces/file.txt")
+    - You can specify an optional timeout in seconds (default: 30s)
+    - Avoid using Bash with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands. Instead, always prefer using the dedicated tools:
+      - File search: Use glob_files (NOT find or ls)
+      - Content search: Use grep_code (NOT grep or rg)
+      - Read files: Use read_file (NOT cat/head/tail)
+      - Edit files: Use edit_file (NOT sed/awk)
+      - Write files: Use write_file (NOT echo >/cat <<EOF)
+
+    When issuing multiple commands:
+    - If the commands are independent and can run in parallel, make multiple run_bash tool calls in a single response
+    - If the commands depend on each other and must run sequentially, use a single Bash call with '&&' to chain them together (e.g., `git add . && git commit -m "message" && git push`)
+    - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
+    - DO NOT use newlines to separate commands (newlines are ok in quoted strings)
+
+    Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`.
 
     Args:
         command: Bash command to execute
-        timeout: Timeout in seconds
+        timeout: Timeout in seconds (default: 30)
 
     Returns:
         Command output (stdout + stderr)
@@ -280,8 +318,98 @@ def run_bash(command: str, timeout: int = 30) -> str:
 
 
 # ============================================================================
-# 도구 목록
+# 작업 관리 도구
 # ============================================================================
+
+
+@tool
+def todo_write(todos: list[dict]) -> str:
+    """Use this tool to create and manage a structured task list for your current coding session.
+
+    Usage:
+    Use this tool proactively in these scenarios:
+    1. Complex multi-step tasks - When a task requires 3 or more distinct steps or actions
+    2. Non-trivial and complex tasks - Tasks that require careful planning or multiple operations
+    3. After receiving new instructions - Immediately capture user requirements as todos
+    4. When you start working on a task - Mark it as in_progress BEFORE beginning work
+    5. After completing a task - Mark it as completed and add any new follow-up tasks
+
+    When NOT to Use This Tool:
+    1. There is only a single, straightforward task
+    2. The task is trivial and tracking it provides no organizational benefit
+    3. The task can be completed in less than 3 trivial steps
+
+    Task States and Management:
+    1. Task States:
+       - pending: Task not yet started
+       - in_progress: Currently working on (limit to ONE task at a time)
+       - completed: Task finished successfully
+
+    2. Task descriptions must have two forms:
+       - content: The imperative form (e.g., "Run tests", "Build the project")
+       - activeForm: The present continuous form (e.g., "Running tests", "Building the project")
+
+    3. Task Management:
+       - Update task status in real-time as you work
+       - Mark tasks complete IMMEDIATELY after finishing (don't batch completions)
+       - Exactly ONE task must be in_progress at any time (not less, not more)
+       - Complete current tasks before starting new ones
+
+    Args:
+        todos: List of todo items, each with 'content' (str), 'status' (pending/in_progress/completed), 'activeForm' (str)
+
+    Returns:
+        Success message with current todo status
+    """
+    # Validate todo structure
+    for todo in todos:
+        if not all(k in todo for k in ["content", "status", "activeForm"]):
+            raise ValueError("Each todo must have 'content', 'status', and 'activeForm' fields")
+        if todo["status"] not in ["pending", "in_progress", "completed"]:
+            raise ValueError(f"Invalid status: {todo['status']}")
+
+    # Count statuses
+    in_progress = sum(1 for t in todos if t["status"] == "in_progress")
+    completed = sum(1 for t in todos if t["status"] == "completed")
+    pending = sum(1 for t in todos if t["status"] == "pending")
+
+    # Return formatted status
+    result = f"Todo list updated: {len(todos)} total tasks\n"
+    result += f"  - {completed} completed\n"
+    result += f"  - {in_progress} in progress\n"
+    result += f"  - {pending} pending"
+
+    # Note: Actual state update happens in graph node
+    return result
+
+
+# ============================================================================
+# 계획 모드 도구
+# ============================================================================
+
+
+@tool
+def exit_plan_mode(plan: str) -> str:
+    """Use this tool when you are in plan mode and have finished presenting your plan and are ready to code.
+
+    IMPORTANT: Only use this tool when the task requires planning the implementation steps of a task that requires writing code.
+    For research tasks where you're gathering information, searching files, reading files or in general trying to understand the codebase - do NOT use this tool.
+
+    Handling Ambiguity in Plans:
+    Before using this tool, ensure your plan is clear and unambiguous. If there are multiple valid approaches or unclear requirements:
+    1. Clarify with the user
+    2. Ask about specific implementation choices (e.g., architectural patterns, which library to use)
+    3. Clarify any assumptions that could affect the implementation
+    4. Only proceed after resolving ambiguities
+
+    Args:
+        plan: The plan you came up with, that you want to run by the user for approval. Supports markdown. The plan should be pretty concise.
+
+    Returns:
+        Message indicating plan mode exit
+    """
+    return f"Plan presented to user. Awaiting approval to proceed with implementation.\n\n{plan}"
+
 
 # ============================================================================
 # Task Tool (Subagent 실행) - 이것이 핵심!
@@ -294,7 +422,7 @@ def task_tool(subagent_type: str, description: str, prompt: str, model: str = "s
     Launch a subagent to handle complex tasks.
 
     Args:
-        subagent_type: Type of agent (general-purpose, Explore, Plan, statusline-setup)
+        subagent_type: Type of agent (general-purpose, Explore, Plan)
         description: Short 3-5 word description
         prompt: Detailed instructions for the subagent
         model: Model to use (sonnet, opus, haiku)
@@ -315,6 +443,8 @@ TOOLS = [
     glob_files,
     grep_code,
     run_bash,
+    todo_write,  # 작업 추적!
+    exit_plan_mode,  # 계획 모드 종료!
     task_tool,  # Subagent 실행!
 ]
 

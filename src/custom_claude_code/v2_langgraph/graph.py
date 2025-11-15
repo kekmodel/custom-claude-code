@@ -63,7 +63,8 @@ async def execute_tools(state: AgentState) -> dict:
     우리는 특별한 요구사항이 있습니다:
 
         ❌ 문제: task_tool은 일반 도구가 아니라 **Subagent를 실행**해야 함
-        ✅ 해결: 커스텀 노드로 task_tool을 특별 처리!
+        ❌ 문제: todo_write는 state를 업데이트해야 함
+        ✅ 해결: 커스텀 노드로 특수 도구를 별도 처리!
 
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -73,23 +74,25 @@ async def execute_tools(state: AgentState) -> dict:
     2. 각 tool_call에 대해:
        ┌─────────────────────────────────────────┐
        │ task_tool?                              │
-       ├─────────────────────────────────────────┤
-       │ YES → execute_subagent() 호출           │
-       │       (새 StateGraph 생성 및 실행!)      │
+       │   → execute_subagent() 호출             │
        │                                         │
-       │ NO  → TOOLS_BY_NAME에서 도구 찾아 실행   │
+       │ todo_write?                             │
+       │   → state의 todos 업데이트              │
+       │                                         │
+       │ 기타                                    │
+       │   → TOOLS_BY_NAME에서 도구 찾아 실행     │
        └─────────────────────────────────────────┘
     3. 결과를 ToolMessage로 변환
-    4. {"messages": [ToolMessage, ...]} 반환
+    4. {"messages": [...], "todos": [...]} 반환
 
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     Args:
-        state: 현재 AgentState (messages, working_dir, depth 포함)
+        state: 현재 AgentState (messages, working_dir, depth, todos 포함)
 
     Returns:
-        dict: {"messages": [ToolMessage, ...]}
-              StateGraph가 자동으로 기존 messages에 append함
+        dict: {"messages": [ToolMessage, ...], "todos": [...]}
+              StateGraph가 자동으로 기존 messages에 append하고 todos 업데이트
 
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -122,6 +125,7 @@ async def execute_tools(state: AgentState) -> dict:
         return {"messages": []}
 
     tool_messages = []
+    updated_todos = state.get("todos")  # 현재 todos 상태
 
     # 각 tool_call 처리
     for tool_call in last_message.tool_calls:
@@ -148,6 +152,17 @@ async def execute_tools(state: AgentState) -> dict:
                 )
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 특수 처리: todo_write는 state 업데이트!
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            elif tool_name == "todo_write":
+                # todo_write 도구 실행 (검증 포함)
+                tool = TOOLS_BY_NAME.get(tool_name)
+                result = tool.invoke(tool_args)
+
+                # state의 todos 업데이트
+                updated_todos = tool_args.get("todos", [])
+
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 일반 도구: TOOLS_BY_NAME에서 찾아서 실행
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             else:
@@ -167,8 +182,12 @@ async def execute_tools(state: AgentState) -> dict:
                 ToolMessage(content=f"[ERROR] {type(e).__name__}: {str(e)}", tool_call_id=tool_call_id)
             )
 
-    # StateGraph가 자동으로 messages에 append
-    return {"messages": tool_messages}
+    # StateGraph가 자동으로 messages에 append하고 todos 업데이트
+    result_dict = {"messages": tool_messages}
+    if updated_todos is not None:
+        result_dict["todos"] = updated_todos
+
+    return result_dict
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

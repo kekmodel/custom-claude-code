@@ -25,12 +25,16 @@ import platform as platform_module
 from datetime import datetime
 from typing import Any, Dict, Literal
 
+from dotenv import load_dotenv
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END
 
 from .tools import TOOLS, TOOLS_BY_NAME
 from .types import AgentState
+
+# .env 파일 로드 (모델 초기화 전에 필요)
+load_dotenv()
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # System Prompt 생성
@@ -71,8 +75,6 @@ def get_system_prompt(working_dir: str = None) -> str:
     # 프롬프트 생성
     return f"""You are a coding assistant powered by LangGraph.
 
-# Environment
-
 <env>
 Working directory: {working_dir}
 Is directory a git repo: {"Yes" if is_git_repo else "No"}
@@ -83,50 +85,118 @@ Today's date: {today}
 
 # Tools
 
-You have access to the following tools:
-- **read_file**: Read a file with line numbers
-- **write_file**: Create or overwrite a file
-- **edit_file**: Edit a file by replacing exact strings
-- **glob_files**: Find files by glob pattern (e.g., "**/*.ts")
-- **grep_code**: Search code with regex
-- **run_bash**: Execute bash commands
+다음 도구에 접근할 수 있습니다:
+- read_file: 줄 번호와 함께 파일 읽기
+- write_file: 파일 생성 또는 덮어쓰기
+- edit_file: 정확한 문자열 치환으로 파일 편집
+- glob_files: glob 패턴으로 파일 찾기 (예: "**/*.ts")
+- grep_code: 정규식으로 코드 검색
+- run_bash: bash 명령어 실행
+- todo_write: 진행 상황 추적을 위한 작업 목록 생성 및 관리
+- exit_plan_mode: 구현 계획 제시 및 계획 단계 종료
+- task_tool: 복잡한 작업을 위한 전문 subagent 실행
+
+# Task Management
+
+작업을 관리하고 계획하는 데 todo_write 도구를 사용하세요. 이 도구를 **매우** 자주 사용하여 작업을 추적하고 사용자에게 진행 상황을 가시적으로 보여주세요.
+
+이 도구는 또한 작업을 계획하고 더 큰 복잡한 작업을 더 작은 단계로 나누는 데 **극도로** 유용합니다. 계획 시 이 도구를 사용하지 않으면 중요한 작업을 잊어버릴 수 있으며, 이는 용납될 수 없습니다.
+
+작업을 완료하는 즉시 todo를 완료로 표시하는 것이 중요합니다. 여러 작업을 일괄 처리하여 완료 표시하지 마세요.
+
+Examples:
+
+<example>
+user: 빌드를 실행하고 타입 오류를 수정해 주세요
+assistant: TodoWrite 도구를 사용하여 다음 항목을 할 일 목록에 작성하겠습니다:
+- 빌드 실행
+- 타입 오류 수정
+
+이제 Bash를 사용하여 빌드를 실행하겠습니다.
+
+10개의 타입 오류를 발견했습니다. TodoWrite 도구를 사용하여 10개의 항목을 할 일 목록에 작성하겠습니다.
+
+첫 번째 todo를 in_progress로 표시합니다
+
+첫 번째 항목 작업을 시작하겠습니다...
+
+첫 번째 항목이 수정되었으니, 첫 번째 todo를 completed로 표시하고 두 번째 항목으로 넘어가겠습니다...
+..
+..
+</example>
+
+# Tool usage policy
+
+- 파일 검색 시 컨텍스트 사용을 줄이기 위해 Task 도구 사용을 선호하세요.
+- 작업이 agent 설명과 일치하는 경우 전문 agent와 함께 Task 도구를 적극적으로 사용해야 합니다.
+- 한 응답에서 여러 도구를 호출할 수 있습니다. 여러 도구를 호출하려고 하고 도구 간에 종속성이 없는 경우, 모든 독립적인 도구 호출을 병렬로 수행하세요. 효율성을 높이기 위해 가능한 한 병렬 도구 호출을 최대화하세요. 그러나 일부 도구 호출이 종속 값을 알려주기 위해 이전 호출에 의존하는 경우, 이러한 도구를 병렬로 호출하지 **말고** 순차적으로 호출하세요.
+- 가능한 경우 bash 명령어 대신 전문 도구를 사용하세요. 파일 작업의 경우 전용 도구를 사용하세요: cat/head/tail 대신 read_file로 파일 읽기, sed/awk 대신 edit_file로 편집, cat heredoc이나 echo redirection 대신 write_file로 파일 생성.
+- **매우 중요**: 코드베이스를 탐색하여 컨텍스트를 수집하거나 특정 파일/클래스/함수에 대한 정확한 쿼리가 아닌 질문에 답변할 때, 검색 명령어를 직접 실행하는 대신 subagent_type=Explore와 함께 Task 도구를 사용하는 것이 **중요**합니다.
+
+<example>
+user: 클라이언트 오류는 어디서 처리되나요?
+assistant: [Glob이나 Grep을 직접 사용하는 대신 subagent_type=Explore와 함께 Task 도구를 사용하여 클라이언트 오류를 처리하는 파일을 찾습니다]
+</example>
+
+# Code References
+
+특정 함수나 코드 조각을 참조할 때 사용자가 소스 코드 위치로 쉽게 이동할 수 있도록 `file_path:line_number` 패턴을 포함하세요.
+
+<example>
+user: 클라이언트 오류는 어디서 처리되나요?
+assistant: 클라이언트는 src/services/process.ts:712의 `connectToServer` 함수에서 실패로 표시됩니다.
+</example>
 
 # Guidelines
 
-1. **Read before Edit**: Always use read_file before edit_file
-2. **Absolute Paths**: Always use absolute file paths
-3. **Safety**: Verify dangerous operations with the user
-4. **Code References**: Use `file_path:line_number` format when referencing code
-5. **Explanations**: Provide brief explanations of your actions
+1. Read before Edit: edit_file 전에 **항상** read_file 사용
+2. Absolute Paths: **항상** 절대 파일 경로 사용
+3. Safety: 위험한 작업은 사용자와 확인
+4. Explanations: 작업에 대한 간단한 설명 제공
 
-Now, help the user with their request."""
+이제 사용자의 요청을 도와주세요."""
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # LLM 초기화
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# 💡 LangChain의 ChatOpenAI를 사용하지만 Anthropic Claude를 호출
-# (OpenAI 호환 API 덕분에 가능)
-model = ChatOpenAI(
+# 💡 ChatAnthropic을 직접 사용 (Haiku 4.5 - 빠르고 저렴하며 thinking 지원!)
+model = ChatAnthropic(
     model="claude-haiku-4-5",
-    temperature=0.7,
-    openai_api_key=os.getenv("OPENAI_API_KEY"),
-    openai_api_base=os.getenv("OPENAI_BASE_URL")  # Anthropic API URL
+    temperature=1,  # Extended thinking 사용 시 반드시 1이어야 함
+    api_key=os.getenv("ANTHROPIC_API_KEY"),
+    # Extended thinking 활성화 (Haiku 4.5부터 지원!)
+    thinking={
+        "type": "enabled",
+        "budget_tokens": 2048  # thinking 토큰 예산 (최소 1024)
+    }
 )
 
 # 도구와 함께 바인딩 (중요! 이래야 LLM이 도구를 호출할 수 있음)
 model_with_tools = model.bind_tools(TOOLS)
 """
+📌 Extended Thinking (Haiku 4.5+):
+- Haiku 4.5는 extended thinking을 지원하는 첫 번째 Haiku 모델!
+- thinking.type: "enabled" - thinking 기능 활성화
+- thinking.budget_tokens: thinking에 사용할 최대 토큰 수 (최소 1024)
+- ⚠️ 중요: thinking 활성화 시 temperature는 반드시 1이어야 함!
+- 코딩과 복잡한 추론 작업에 강력히 권장
+- thinking 토큰은 output 요금으로 청구 ($5/1M tokens)
+
 📌 bind_tools()의 역할:
-- TOOLS 리스트의 각 도구를 OpenAI function calling 스키마로 변환
+- TOOLS 리스트의 각 도구를 Anthropic tool calling 스키마로 변환
 - LLM 호출 시 도구 목록을 함께 전달
 - LLM이 응답에 tool_calls를 포함할 수 있게 함
 
-📌 확장 팁:
-다른 LLM 사용:
+📌 Extended Thinking 지원 모델:
+- Claude Haiku 4.5+ (NEW!)
+- Claude 3.7 Sonnet
+- Claude 4 Sonnet/Opus
+
+📌 확장 팁 - 다른 LLM 사용:
 - OpenAI: ChatOpenAI(model="gpt-4")
-- Anthropic 직접: ChatAnthropic(model="claude-3-5-sonnet-20241022")
+- Claude 3.5: ChatAnthropic(model="claude-3-5-sonnet-20241022")
 - 로컬: ChatOllama(model="llama2")
 """
 
@@ -306,7 +376,7 @@ async def execute_subagent(
     5. 최종 응답 추출하여 반환
 
     Args:
-        subagent_type: Subagent 타입 ("explore", "plan", "general", "statusline-setup")
+        subagent_type: Subagent 타입 ("Explore", "Plan", "general-purpose")
         prompt: Subagent에게 전달할 작업 설명
         system_prompt: Subagent용 시스템 프롬프트
         current_depth: 현재 중첩 깊이 (0이 Main agent)
@@ -316,23 +386,45 @@ async def execute_subagent(
     Returns:
         Subagent의 최종 응답 문자열
 
-    📌 Subagent 타입별 도구 제한:
-    - "statusline-setup": read_file, edit_file만
-    - 나머지: 모든 도구 사용 가능
+    📌 Subagent 타입 (Claude Code 원본 설명):
 
-    📌 확장 예시: 새 Subagent 타입 추가
+    - "general-purpose": General-purpose agent for researching complex questions,
+      searching for code, and executing multi-step tasks. When you are searching
+      for a keyword or file and are not confident that you will find the right
+      match in the first few tries use this agent to perform the search for you.
+      (Tools: *)
+
+    - "Explore": Fast agent specialized for exploring codebases. Use this when
+      you need to quickly find files by patterns (eg. "src/components/**/*.tsx"),
+      search code for keywords (eg. "API endpoints"), or answer questions about
+      the codebase (eg. "how do API endpoints work?"). When calling this agent,
+      specify the desired thoroughness level: "quick" for basic searches,
+      "medium" for moderate exploration, or "very thorough" for comprehensive
+      analysis across multiple locations and naming conventions. (Tools: All tools)
+
+    - "Plan": Fast agent specialized for exploring codebases. Use this when you
+      need to quickly find files by patterns (eg. "src/components/**/*.tsx"),
+      search code for keywords (eg. "API endpoints"), or answer questions about
+      the codebase (eg. "how do API endpoints work?"). When calling this agent,
+      specify the desired thoroughness level: "quick" for basic searches,
+      "medium" for moderate exploration, or "very thorough" for comprehensive
+      analysis across multiple locations and naming conventions. (Tools: All tools)
+
+    📌 공통 도구 제한:
+    모든 Subagent는 다음 도구를 사용할 수 없습니다:
+    - task_tool (무한 재귀 방지)
+    - todo_write (Main agent만 관리)
+    - exit_plan_mode (Main agent만 사용)
+
+    📌 확장 예시: 특정 타입에 추가 제한 적용
     ```python
     # 도구 필터링 부분에 추가
-    if subagent_type == "statusline-setup":
-        allowed_tools = [t for t in TOOLS if t.name in ["read_file", "edit_file"]]
-    elif subagent_type == "code-reviewer":
-        # 코드 리뷰 전용: 읽기와 분석 도구만
-        allowed_tools = [t for t in TOOLS if t.name in ["read_file", "grep_code", "glob_files"]]
-    elif subagent_type == "test-runner":
-        # 테스트 실행 전용
-        allowed_tools = [t for t in TOOLS if t.name in ["run_bash", "read_file"]]
-    else:
-        allowed_tools = TOOLS
+    if subagent_type == "Explore":
+        # 탐색 전용: 쓰기 도구 제외
+        allowed_tools = [t for t in allowed_tools if t.name not in ["write_file", "edit_file"]]
+    elif subagent_type == "Plan":
+        # 계획 전용: 읽기 도구만
+        allowed_tools = [t for t in allowed_tools if t.name in ["read_file", "grep_code", "glob_files"]]
     ```
 
     📌 중요 개념: 재귀적 StateGraph
@@ -356,21 +448,56 @@ async def execute_subagent(
         return f"[ERROR] Max subagent depth ({max_depth}) exceeded"
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 모델 이름 변환 (짧은 이름 → 전체 모델 이름)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # task_tool의 model 파라미터는 사용자 편의를 위해 짧은 이름("haiku", "sonnet", "opus")을 받지만,
+    # Anthropic API는 전체 모델 ID를 요구하므로 변환이 필요합니다.
+    model_map = {
+        "haiku": "claude-haiku-4-5",
+        "sonnet": "claude-sonnet-4-5-20250929",
+        "opus": "claude-opus-4-20250514",
+    }
+
+    # 짧은 이름이면 변환, 이미 전체 이름이면 그대로 사용
+    if model_name in model_map:
+        full_model_name = model_map[model_name]
+    else:
+        full_model_name = model_name
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Step 2: 도구 필터링 (Subagent 타입별)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    if subagent_type == "statusline-setup":
-        # statusline 설정 전용: 읽기/쓰기만 허용
-        allowed_tools = [t for t in TOOLS if t.name in ["read_file", "edit_file"]]
-    else:
-        # 나머지 타입: 모든 도구 허용
-        # "explore": 탐색 전용 (파일 찾기, 검색)
-        # "plan": 계획 수립 (분석, 읽기)
-        # "general": 일반 작업 (모든 도구)
-        allowed_tools = TOOLS
+    # Subagent는 특정 도구를 사용할 수 없음 (무한 재귀 방지 및 역할 분리)
+    excluded_tools = {"task_tool", "todo_write", "exit_plan_mode"}
+
+    # 모든 Subagent 타입: 제외 도구를 제외한 나머지 허용
+    # - "general-purpose": 복잡한 리서치, 코드 검색, 멀티스텝 실행
+    # - "Explore": 빠른 코드베이스 탐색 (패턴, 키워드, 질문 답변)
+    # - "Plan": 구현 계획 수립
+    allowed_tools = [t for t in TOOLS if t.name not in excluded_tools]
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 3: Subagent용 StateGraph 생성
+    # Step 3: Subagent용 system prompt 수정 (제외된 도구 명시)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # Subagent용 system prompt: 제외된 도구 명시
+    subagent_system_prompt = system_prompt + f"""
+
+# Subagent Restrictions
+
+당신은 제한된 도구 접근 권한을 가진 subagent입니다. 다음 도구에는 접근할 수 **없습니다**:
+- task_tool: 다른 subagent를 실행할 수 없습니다 (무한 재귀 방지)
+- todo_write: 작업 추적은 main agent에서만 관리됩니다
+- exit_plan_mode: 계획은 main agent에서만 처리됩니다
+
+사용 가능한 도구: {', '.join(t.name for t in allowed_tools)}
+
+제한된 도구의 기능이 필요한 경우, 사용 가능한 도구로 작업을 완료하고 결과를 main agent에게 반환하세요.
+"""
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 4: Subagent용 StateGraph 생성
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def subagent_call_agent(state: AgentState) -> dict:
@@ -382,12 +509,22 @@ async def execute_subagent(
         """
         msgs = state["messages"]
 
-        # SystemMessage 추가 (Subagent용 system prompt)
+        # SystemMessage 추가 (Subagent용 system prompt - 제외 도구 명시됨)
         if not msgs or not isinstance(msgs[0], SystemMessage):
-            msgs = [SystemMessage(content=system_prompt)] + list(msgs)
+            msgs = [SystemMessage(content=subagent_system_prompt)] + list(msgs)
 
         # Subagent용 LLM 생성 (별도 인스턴스)
-        llm = ChatOpenAI(model=model_name, temperature=0.7)
+        # ChatAnthropic 사용 (Main agent와 동일한 모델 패밀리)
+        llm = ChatAnthropic(
+            model=full_model_name,  # 변환된 전체 모델 이름 사용
+            temperature=1,  # thinking 사용 시 1로 고정
+            api_key=os.getenv("ANTHROPIC_API_KEY"),
+            # Extended thinking 활성화
+            thinking={
+                "type": "enabled",
+                "budget_tokens": 2048
+            }
+        )
         llm_with_tools = llm.bind_tools(allowed_tools)  # 필터링된 도구만!
 
         # LLM 호출
@@ -414,7 +551,7 @@ async def execute_subagent(
         return END
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 4: Subagent graph 구성 (Main agent와 동일한 구조!)
+    # Step 5: Subagent graph 구성 (Main agent와 동일한 구조!)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     builder = StateGraph(AgentState)
@@ -447,7 +584,7 @@ async def execute_subagent(
     """
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 5: Subagent 실행
+    # Step 6: Subagent 실행
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     # 초기 상태 생성 (Subagent 시작 시)
@@ -456,6 +593,7 @@ async def execute_subagent(
         "working_dir": os.getcwd(),
         "selected_tools": None,
         "depth": current_depth + 1,  # Depth 증가!
+        "todos": None,  # Subagent도 todos 사용 가능 (하지만 todo_write는 제한됨)
     }
 
     try:

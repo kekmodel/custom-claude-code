@@ -90,7 +90,7 @@ class AgentState(TypedDict):
     📌 확장 팁:
     특정 상황에서 도구를 제한하고 싶을 때 유용:
     - 초보자 모드: 안전한 도구만 허용
-    - 읽기 전용 모드: read_file, grep만 허용
+    - 읽기 전용 모드: read_file, grep_code, glob_files만 허용
     """
 
     depth: int
@@ -103,11 +103,33 @@ class AgentState(TypedDict):
     - depth=5: 최대 깊이 (보통 여기서 중단)
 
     중요: nodes.py의 execute_subagent()에서 depth를 체크하여
-          max_depth를 초과하면 RecursionError 발생
+          max_depth를 초과하면 에러 메시지 반환
 
     📌 확장 팁:
     복잡한 중첩 작업이 필요하면 max_depth를 조정할 수 있지만,
     무한 루프 위험이 있으니 주의!
+    """
+
+    todos: Optional[list[dict]]
+    """
+    ✅ 작업 추적 목록 (TodoWrite 도구)
+
+    용도: 복잡한 멀티 스텝 작업의 진행 상황 추적
+    - None: 작업 추적 사용 안 함
+    - List[Dict]: 각 todo는 content, status, activeForm 필드 포함
+
+    구조:
+    [
+        {
+            "content": "작업 내용 (명령형)",
+            "status": "pending" | "in_progress" | "completed",
+            "activeForm": "작업 내용 (진행형)"
+        }
+    ]
+
+    📌 확장 팁:
+    TodoWrite 도구를 통해 LLM이 직접 작업 목록을 관리하고,
+    UI에서 실시간으로 진행 상황을 표시할 수 있습니다.
     """
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

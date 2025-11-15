@@ -1,4 +1,4 @@
-# Version 2: LangGraph를 활용한 구현 ✅ **COMPLETE**
+# Version 2: LangGraph를 활용한 구현 ✅
 
 LangGraph의 상태 머신을 활용하여 Claude Code를 구현한 버전입니다.
 
@@ -12,16 +12,16 @@ LangGraph는 LangChain 팀이 만든 **상태 머신 기반 agent 프레임워�
    ```python
    class AgentState(TypedDict):
        messages: List[Message]
-       current_tool: Optional[str]
+       depth: int
+       todos: Optional[list[dict]]
    ```
 
 2. **Graph**: 노드와 엣지로 구성된 플로우
    ```python
    graph = StateGraph(AgentState)
-   graph.add_node("llm", call_llm)
+   graph.add_node("agent", call_agent)
    graph.add_node("tools", execute_tools)
-   graph.add_edge("llm", "tools")
-   graph.add_conditional_edges("tools", should_continue)
+   graph.add_conditional_edges("agent", should_continue)
    ```
 
 3. **Checkpointer**: 대화 히스토리 자동 저장
@@ -30,169 +30,105 @@ LangGraph는 LangChain 팀이 만든 **상태 머신 기반 agent 프레임워�
    app = graph.compile(checkpointer=checkpointer)
    ```
 
-## v1 (OpenAI 직접)과의 차이점
+## v1 vs v2 비교
 
-### v1: 수동 루프
+| 특징 | v1 (OpenAI 직접) | v2 (LangGraph) |
+|------|-----------------|----------------|
+| 루프 관리 | 수동 while 루프 | 자동 graph 루프 |
+| 분기 로직 | if-elif 체인 | conditional_edges |
+| 히스토리 | 직접 관리 | Checkpointer 자동 |
+| 시각화 | 없음 | Mermaid 다이어그램 |
+| 학습 곡선 | 낮음 | 중간 |
+| 확장성 | 높음 | 매우 높음 |
 
-```python
-while True:
-    response = openai.chat.completions.create(...)
-
-    if finish_reason == "stop":
-        break
-    elif finish_reason == "tool_calls":
-        results = execute_tools(...)
-        messages.extend(results)
-        continue  # 수동으로 루프
-```
-
-### v2: LangGraph 자동 루프
-
-```python
-graph = StateGraph(AgentState)
-graph.add_node("llm", call_llm)
-graph.add_node("tools", execute_tools)
-graph.add_conditional_edges(
-    "tools",
-    lambda state: "llm" if has_tool_calls(state) else END
-)
-
-# 그래프가 알아서 루프!
-app = graph.compile()
-result = app.invoke({"messages": [user_message]})
-```
-
-**장점**:
-- 루프 로직을 그래프가 자동 처리
-- 조건부 분기가 명확 (conditional_edges)
-- Checkpointer로 히스토리 자동 관리
-- 시각화 가능 (graph.get_graph().draw_mermaid())
-
-**단점**:
-- 추가 추상화 레이어 (학습 곡선)
-- LangGraph 의존성
+**v2의 핵심 장점**: 복잡한 multi-agent 플로우를 선언적으로 표현
 
 ## 구현 현황
 
-- ✅ **types.py** - AgentState 정의 (MessagesState 패턴)
-- ✅ **tools.py** - 7개 도구 (6개 핵심 + **task_tool**)
-- ✅ **nodes.py** - call_agent, should_continue, **execute_subagent**
-- ✅ **graph.py** - StateGraph 구성 + **커스텀 도구 노드 (Subagent 지원!)**
-- ✅ **main.py** - graph.stream() 실행 루프
-- ✅ **README.md** - 완전한 문서
+**파일 구조**:
+- **types.py** (158줄) - AgentState 정의
+- **tools.py** (451줄) - 9개 도구 (read_file, write_file, edit_file, glob_files, grep_code, run_bash, todo_write, exit_plan_mode, task_tool)
+- **nodes.py** (661줄) - call_agent, should_continue, execute_subagent
+- **graph.py** (462줄) - StateGraph 구성 + 커스텀 도구 노드
+- **main.py** (732줄) - 토큰 단위 스트리밍 UI
 
-**총 코드**: ~866줄 (Subagent 지원 포함!)
+**총 코드**: ~2,473줄 (상세 주석 포함)
 
-## ⭐ Subagent 시스템 (Claude Code의 핵심!)
+## ⭐ Subagent 시스템
 
-v2는 **Task tool + Subagent 실행**을 완전히 지원합니다!
+v2는 **재귀적 StateGraph**를 통한 Subagent 실행을 완전히 지원합니다.
 
 ### 작동 원리
 
-1. **task_tool** - LLM이 복잡한 작업을 Subagent에 위임
-   ```python
-   @tool
-   def task_tool(subagent_type: str, description: str, prompt: str, model: str = "sonnet") -> str:
-       """Launch a subagent to handle complex tasks."""
-   ```
+```python
+# 1. task_tool로 Subagent 요청
+@tool
+def task_tool(subagent_type: str, prompt: str, model: str = "sonnet"):
+    """Launch a specialized subagent"""
 
-2. **execute_subagent()** - 독립적인 StateGraph로 Subagent 실행
-   ```python
-   async def execute_subagent(
-       subagent_type: str,
-       prompt: str,
-       system_prompt: str,
-       current_depth: int = 0,
-       max_depth: int = 5,
-       model_name: str = "claude-haiku-4-5"
-   ) -> str:
-       # 새로운 StateGraph 생성!
-       builder = StateGraph(AgentState)
-       builder.add_node("agent", subagent_call_agent)
-       builder.add_node("tools", ToolNode(allowed_tools))
-       # ... 엣지 구성 ...
+# 2. execute_subagent()가 독립적인 StateGraph 생성 및 실행
+async def execute_subagent(...) -> str:
+    builder = StateGraph(AgentState)
+    builder.add_node("agent", subagent_call_agent)
+    builder.add_node("tools", ToolNode(allowed_tools))
+    subagent_graph = builder.compile()
+    return await subagent_graph.ainvoke(initial_state)
 
-       subagent_graph = builder.compile()
-       final_state = await subagent_graph.ainvoke(initial_state)
-       return final_state["messages"][-1].content
-   ```
-
-3. **커스텀 도구 노드** - task_tool을 감지하고 execute_subagent() 호출
-   ```python
-   async def execute_tools(state: AgentState) -> dict:
-       for tool_call in last_message.tool_calls:
-           if tool_call["name"] == "task_tool":
-               # Subagent 실행!
-               result = await execute_subagent(...)
-           else:
-               # 일반 도구 실행
-               result = tool.invoke(tool_args)
-   ```
+# 3. 커스텀 도구 노드에서 task_tool 감지 및 처리
+if tool_name == "task_tool":
+    result = await execute_subagent(...)
+```
 
 ### Subagent 타입
 
-- **general-purpose** - 모든 도구 접근, 복잡한 작업 처리
-- **Explore** - 코드베이스 탐색 (glob, grep, read)
-- **Plan** - 계획 수립 (탐색 + 분석)
-- **statusline-setup** - 설정 파일 편집 (read, edit만 허용)
+1. **general-purpose** - 복잡한 리서치, 코드 검색, 멀티스텝 실행
+2. **Explore** - 코드베이스 탐색 (파일 찾기, 키워드 검색, 질문 답변)
+3. **Plan** - 구현 계획 수립
 
-### 중첩 제한
-
-- **max_depth=5** - 최대 5단계 중첩까지 허용
-- 무한 재귀 방지
+**제한사항**:
+- 모든 Subagent는 `task_tool`, `todo_write`, `exit_plan_mode` 사용 불가
+- 최대 중첩 깊이: 5단계 (무한 재귀 방지)
 
 ### LangGraph의 Subagent 패턴
 
-LangGraph에서 Subagent는 **독립적인 StateGraph**로 구현됩니다:
-- 각 Subagent가 자체 StateGraph를 가짐
+- 각 Subagent는 독립적인 StateGraph
 - 도구 필터링으로 권한 제어
 - 완전히 독립적인 실행 컨텍스트
-
-## 파일 구조
-
-```
-v2_langgraph/
-├── types.py         # AgentState 타입 정의
-├── tools.py         # 6개 도구 (@tool 데코레이터)
-├── nodes.py         # Agent 노드 + 조건부 엣지
-├── graph.py         # StateGraph 구성
-├── main.py          # 메인 실행 루프
-└── README.md        # 이 문서
-```
 
 ## 사용법
 
 ```bash
-cd /Users/jd/Documents/workspace/custom-claude-code
 uv run python -m custom_claude_code.v2_langgraph.main
 ```
 
-## LangGraph의 장점
+## 언제 LangGraph를 사용할까?
 
-1. **상태 관리 자동화**: messages, 도구 결과 등을 state로 관리
-2. **분기 로직 명확화**: conditional_edges로 "도구 사용" vs "완료" 분기
-3. **히스토리 관리**: Checkpointer로 대화 자동 저장/복원
-4. **시각화**: 그래프 구조를 Mermaid로 시각화 가능
-5. **확장성**: 복잡한 multi-agent 플로우도 그래프로 표현
+✅ **추천**:
+- 복잡한 multi-agent 워크플로우
+- 조건부 분기가 많은 경우
+- 대화 히스토리 관리가 중요할 때
+- 플로우 시각화가 필요할 때
 
-## 언제 사용하나?
+❌ **비추천**:
+- 단순한 단일 agent 구현
+- LangGraph 의존성을 피하고 싶을 때
 
-- **복잡한 Agent 플로우**: 여러 Agent 간 handoff, 조건부 분기
-- **상태 관리가 중요할 때**: 대화 히스토리, 컨텍스트 유지
-- **시각화가 필요할 때**: 플로우를 그래프로 보고 싶을 때
-- **LangChain 생태계 활용**: LangChain의 다른 기능과 통합
+## System Prompt 번역 규칙
 
-## v1 vs v2 비교
+이 프로젝트는 교육용으로 system prompt를 한국어로 번역합니다.
 
-| 특징 | v1: OpenAI 직접 | v2: LangGraph |
-|------|-----------------|---------------|
-| 루프 관리 | 수동 (while) | 자동 (graph) |
-| 분기 로직 | if-elif | conditional_edges |
-| 히스토리 | 직접 관리 | Checkpointer |
-| 시각화 | 없음 | Mermaid |
-| 복잡도 | 단순 | 중간 |
-| 학습 곡선 | 낮음 | 중간 |
-| 유연성 | 높음 | 높음 |
+**규칙**:
+- 섹션 제목, XML 태그, Examples 레이블 → 영어 유지
+- 내용, 설명 → 한국어 번역
+- 기술 용어 (read_file, subagent_type 등) → 영어 유지
+- 강조 (VERY, NEVER, ALWAYS) → 한국어 볼드 (**매우**, **절대**, **항상**)
+
+**예시**:
+```
+# Task Management (영어 유지)
+
+todo_write 도구를 **매우** 자주 사용하세요. (내용 번역 + 강조 볼드)
+```
 
 ## 참고 자료
 
