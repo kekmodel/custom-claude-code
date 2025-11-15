@@ -206,7 +206,7 @@ model_with_tools = model.bind_tools(TOOLS)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-def call_agent(state: AgentState) -> dict:
+async def call_agent(state: AgentState) -> dict:
     """
     🤖 Agent 노드: LLM을 호출하여 다음 액션 결정
 
@@ -216,9 +216,10 @@ def call_agent(state: AgentState) -> dict:
 
     🔄 실행 흐름:
     1. 현재 상태에서 messages 가져오기
-    2. SystemMessage가 없으면 추가 (첫 호출 시)
-    3. LLM 호출 (model_with_tools.invoke)
-    4. 응답 메시지 반환 → StateGraph가 자동으로 messages에 append
+    2. Auto compact: 메시지가 많으면 자동 압축 (30개 이상)
+    3. SystemMessage가 없으면 추가 (첫 호출 시)
+    4. LLM 호출 (model_with_tools.invoke)
+    5. 응답 메시지 반환 → StateGraph가 자동으로 messages에 append
 
     Args:
         state: 현재 AgentState (messages, working_dir 등)
@@ -233,16 +234,26 @@ def call_agent(state: AgentState) -> dict:
     - messages는 Annotated[..., add_messages]이므로 자동 append됨
     - 다른 필드는 덮어쓰기 방식
 
+    📌 Auto Compact 기능:
+    - 토큰 수가 100k 이상이면 자동 압축
+    - SystemMessage와 최근 20개 메시지는 유지
+    - 중간 메시지는 LLM으로 요약
+    - ⚠️ 요약 시 프롬프트 캐싱 무효화 (비용 증가 가능)
+
     📌 확장 예시:
     ```python
-    def call_agent(state: AgentState) -> dict:
+    async def call_agent(state: AgentState) -> dict:
         # 커스텀 로직 추가
         if state.get("debug_mode"):
             print("Debug: calling LLM...")
 
         messages = state["messages"]
+
+        # Auto compact 적용
+        messages = await compact_messages(messages)
+
         # ...기존 로직...
-        response = model_with_tools.invoke(messages)
+        response = await model_with_tools.ainvoke(messages)
 
         # 추가 상태 업데이트
         return {
@@ -251,19 +262,35 @@ def call_agent(state: AgentState) -> dict:
         }
     ```
     """
-    messages = state["messages"]
+    messages = list(state["messages"])
 
-    # 시스템 프롬프트 추가 (첫 호출이거나 SystemMessage가 없을 때)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 1: SystemMessage 추가 (첫 호출이거나 SystemMessage가 없을 때)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ⚠️ 중요: Auto compact 전에 SystemMessage를 보장해야 함!
+
     if not messages or not isinstance(messages[0], SystemMessage):
         working_dir = state.get("working_dir", os.getcwd())
         system_prompt = get_system_prompt(working_dir)
         # SystemMessage를 맨 앞에 추가
         messages = [SystemMessage(content=system_prompt)] + list(messages)
 
-    # 🤖 LLM 호출!
-    # - messages: 대화 히스토리 전체
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 2: Auto Compact (메시지가 많으면 자동 압축)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    original_message_count = len(messages)
+    messages = await compact_messages(messages)
+    was_compressed = len(messages) < original_message_count
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 3: LLM 호출
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # 🤖 LLM 호출! (async로 변경)
+    # - messages: 대화 히스토리 전체 (압축된 버전)
     # - 도구 목록은 이미 bind_tools()로 연결됨
-    response = model_with_tools.invoke(messages)
+    response = await model_with_tools.ainvoke(messages)
     """
     response의 구조:
     - AIMessage 객체
@@ -278,8 +305,48 @@ def call_agent(state: AgentState) -> dict:
       ]
     """
 
-    # 메시지 반환 (StateGraph가 자동으로 messages 배열에 추가)
-    return {"messages": [response]}
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 4: 메시지 반환 (압축 여부에 따라 다름)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    if was_compressed:
+        # 압축했으면 state의 메시지를 교체해야 함!
+        # 단, SystemMessage는 항상 state에 유지 (중복 방지)
+        from langchain_core.messages import RemoveMessage
+
+        # 📚 학습 포인트: LangGraph의 add_messages reducer와 State 교체
+        #
+        # 문제: add_messages는 기본적으로 append만 함
+        # - 로컬 변수 messages를 압축해도 state["messages"]는 그대로
+        # - 다음 턴에서 압축 안 된 원본 messages를 다시 가져옴 → 연속 압축 발생!
+        #
+        # 해결: RemoveMessage로 기존 메시지 삭제 + 압축된 메시지 추가
+        # - LangGraph의 add_messages는 RemoveMessage를 지원함
+        # - RemoveMessage(id=msg_id)를 반환하면 해당 메시지 삭제
+        # - 그 다음 새 메시지들을 추가
+        #
+        # 주의: SystemMessage 중복 방지!
+        # - state에 이미 SystemMessage 존재
+        # - 압축된 messages에도 SystemMessage 포함
+        # - 두 번 추가하면 "multiple non-consecutive system messages" 에러
+        # - 해결: SystemMessage는 삭제도, 추가도 하지 않음 (state에 유지)
+
+        # SystemMessage 제외한 기존 메시지 모두 삭제
+        remove_messages = [
+            RemoveMessage(id=msg.id)
+            for msg in state["messages"]
+            if not isinstance(msg, SystemMessage) and hasattr(msg, 'id') and msg.id is not None
+        ]
+
+        # 압축된 메시지에서도 SystemMessage 제외 (이미 state에 있으므로)
+        compressed_without_system = [msg for msg in messages if not isinstance(msg, SystemMessage)]
+
+        # 결과: [RemoveMessage들...] + [압축된 메시지들] + [새 response]
+        # → state는 [SystemMessage(기존), 요약, 최근 메시지들, response]로 교체됨
+        return {"messages": remove_messages + compressed_without_system + [response]}
+    else:
+        # 압축 안 했으면 response만 추가 (기본 동작)
+        return {"messages": [response]}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -346,6 +413,463 @@ def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
 
     # 도구 호출이 없으면 종료 (사용자에게 최종 응답)
     return END
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Auto Compact: 대화 히스토리 압축
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+def _count_tokens(messages: list) -> int:
+    """
+    메시지 목록의 대략적인 토큰 수 계산
+
+    Args:
+        messages: 토큰을 계산할 메시지 목록
+
+    Returns:
+        대략적인 토큰 수 (문자 수 / 4)
+
+    Note:
+        정확한 토큰 계산은 tiktoken 라이브러리가 필요하지만,
+        간단한 휴리스틱(문자 수 / 4)으로 충분히 근사할 수 있습니다.
+
+        중요: tool_calls도 포함하여 계산합니다!
+    """
+    import json
+
+    total_chars = 0
+
+    for msg in messages:
+        # Content 계산
+        if hasattr(msg, 'content') and msg.content:
+            total_chars += len(str(msg.content))
+
+        # tool_calls 계산 (AIMessage)
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            # tool_calls를 JSON으로 변환하여 문자 수 계산
+            tool_calls_str = json.dumps(msg.tool_calls)
+            total_chars += len(tool_calls_str)
+
+    return total_chars // 4  # 대략적인 추정: 4 characters ≈ 1 token
+
+
+def _count_tokens_detailed(messages: list) -> list[dict]:
+    """
+    메시지별 상세 토큰 정보 계산 (디버깅용)
+
+    Args:
+        messages: 토큰을 계산할 메시지 목록
+
+    Returns:
+        메시지별 정보 리스트:
+        [
+            {
+                'index': 메시지 인덱스,
+                'type': 메시지 타입,
+                'content_tokens': Content 토큰 수,
+                'tool_calls_tokens': Tool calls 토큰 수,
+                'total_tokens': 전체 토큰 수,
+                'preview': 내용 미리보기 (처음 50자)
+            },
+            ...
+        ]
+
+    📚 학습 포인트:
+        이 함수는 압축 전후 토큰 분포를 분석하여 다음을 파악합니다:
+        1. 어떤 메시지가 토큰을 많이 차지하는가? (예: ToolMessage의 긴 출력)
+        2. Thinking content vs tool_calls 중 어느 쪽이 더 큰가?
+        3. 압축 후 토큰이 왜 다시 증가하는가? (연속 압축 디버깅)
+
+        디버깅 예시:
+        - "압축 후 750 tokens → 다음 턴 7,000 tokens" 문제 발견
+        - 메시지별 분포 확인 → ToolMessage 하나가 6,000 tokens 차지
+        - 원인: 긴 파일 내용을 ToolMessage로 반환
+    """
+    import json
+
+    details = []
+
+    for i, msg in enumerate(messages):
+        msg_type = type(msg).__name__
+        content_chars = 0
+        tool_calls_chars = 0
+
+        # Content 계산
+        if hasattr(msg, 'content') and msg.content:
+            content_str = str(msg.content)
+            content_chars = len(content_str)
+
+            # Preview 생성 (처음 50자)
+            if isinstance(msg.content, str):
+                preview = msg.content[:50].replace('\n', ' ')
+            else:
+                preview = str(msg.content)[:50].replace('\n', ' ')
+        else:
+            preview = "(no content)"
+
+        # tool_calls 계산
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            tool_calls_str = json.dumps(msg.tool_calls)
+            tool_calls_chars = len(tool_calls_str)
+            preview += f" + {len(msg.tool_calls)} tool_calls"
+
+        content_tokens = content_chars // 4
+        tool_calls_tokens = tool_calls_chars // 4
+        total_tokens = content_tokens + tool_calls_tokens
+
+        details.append({
+            'index': i,
+            'type': msg_type,
+            'content_tokens': content_tokens,
+            'tool_calls_tokens': tool_calls_tokens,
+            'total_tokens': total_tokens,
+            'preview': preview
+        })
+
+    return details
+
+
+def _remove_orphan_tool_messages(messages: list) -> list:
+    """
+    Orphan ToolMessage 제거
+
+    압축 후 최근 메시지에 ToolMessage가 있지만 대응하는 AIMessage의 tool_call이
+    요약되어 사라진 경우, 해당 ToolMessage를 제거합니다.
+
+    Args:
+        messages: 정리할 메시지 목록
+
+    Returns:
+        Orphan ToolMessage가 제거된 메시지 목록
+
+    Note:
+        Claude API는 ToolMessage마다 이전 메시지에 대응하는 tool_call이 있어야 합니다.
+        없으면 BadRequestError 발생!
+
+        중요: 하나의 AIMessage에 여러 tool_calls가 있을 수 있으므로,
+        바로 직전 메시지가 아니라 **가장 최근 AIMessage with tool_calls**를 찾아야 합니다.
+    """
+    from langchain_core.messages import ToolMessage
+
+    cleaned = []
+
+    for i, msg in enumerate(messages):
+        if isinstance(msg, ToolMessage):
+            # 이전 메시지들을 역순으로 탐색하여 가장 최근 AIMessage with tool_calls 찾기
+            found_match = False
+
+            for j in range(i - 1, -1, -1):
+                prev_msg = messages[j]
+
+                if isinstance(prev_msg, AIMessage):
+                    # tool_calls가 있는 AIMessage를 찾음
+                    if hasattr(prev_msg, 'tool_calls') and prev_msg.tool_calls:
+                        # tool_call_id 목록 추출
+                        tool_call_ids = []
+                        for tc in prev_msg.tool_calls:
+                            if isinstance(tc, dict):
+                                tool_call_ids.append(tc.get('id'))
+                            else:
+                                tool_call_ids.append(getattr(tc, 'id', None))
+
+                        # 매칭되는 tool_call_id가 있으면 유지
+                        msg_tool_call_id = getattr(msg, 'tool_call_id', None)
+                        if msg_tool_call_id in tool_call_ids:
+                            found_match = True
+                            break
+                    # else: tool_calls가 없어도 계속 찾기 (더 이전의 AIMessage 확인)
+
+            if found_match:
+                cleaned.append(msg)
+            else:
+                # Orphan ToolMessage - 제거 (skip)
+                print(f"⚠️  Orphan ToolMessage 제거: tool_call_id={getattr(msg, 'tool_call_id', 'unknown')}")
+        else:
+            # ToolMessage가 아니면 그대로 유지
+            cleaned.append(msg)
+
+    return cleaned
+
+
+def _format_messages_for_summary(messages: list) -> str:
+    """
+    메시지 목록을 요약용 텍스트로 포맷팅
+
+    Args:
+        messages: 포맷팅할 메시지 목록
+
+    Returns:
+        요약용 텍스트 문자열
+
+    Note:
+        HumanMessage, AIMessage, ToolMessage를 구분하여 포맷팅합니다.
+        AIMessage의 tool_calls도 포함하여 도구 호출 정보를 유지합니다.
+        맥락 이해를 위해 모든 메시지를 **전체** 포함합니다.
+    """
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    formatted = []
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            formatted.append(f"User: {msg.content}")
+        elif isinstance(msg, AIMessage):
+            # AIMessage는 content 또는 tool_calls를 가질 수 있음
+            if msg.content:
+                formatted.append(f"Assistant: {msg.content}")  # 전체 포함
+            # 도구 호출이 있으면 포함
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                tool_names = [tc.get('name', 'unknown') for tc in msg.tool_calls]
+                formatted.append(f"Assistant: [도구 호출: {', '.join(tool_names)}]")
+        elif isinstance(msg, ToolMessage):
+            # ToolMessage의 name 속성 안전하게 접근
+            tool_name = getattr(msg, 'name', 'unknown_tool')
+            content = str(msg.content) if msg.content else "(empty)"
+            formatted.append(f"Tool({tool_name}): {content}")  # 전체 포함
+
+    return "\n".join(formatted)
+
+
+async def compact_messages(
+    messages: list,
+    max_tokens: int = 100_000,  # 프로덕션 기준
+    keep_recent: int = 20        # Fallback용 (주로 마지막 대화 턴 유지)
+) -> list:
+    """
+    🗜️ 대화 히스토리 자동 압축
+
+    긴 대화에서 토큰 수가 max_tokens를 초과하면,
+    오래된 메시지를 LLM으로 요약하여 컨텍스트 창을 관리합니다.
+
+    📌 압축 전략 (Claude Code 방식):
+    1. **항상** 유지: SystemMessage (첫 메시지, state에 이미 존재)
+    2. **우선** 유지: 마지막 대화 턴 (마지막 HumanMessage부터 끝까지)
+       - 사용자의 최신 요청 + AI 응답 + 도구 결과를 완전히 보존
+       - keep_recent는 HumanMessage를 못 찾을 때만 fallback으로 사용
+    3. 요약 대상: 중간의 오래된 메시지들
+    4. Orphan ToolMessage 제거: 대응하는 tool_call이 없는 ToolMessage 삭제
+
+    Args:
+        messages: 압축할 메시지 목록
+        max_tokens: 압축 트리거 토큰 임계값 (기본: 100,000)
+        keep_recent: HumanMessage 못 찾을 때 fallback으로 유지할 메시지 수 (기본: 20)
+
+    Returns:
+        압축된 메시지 목록
+        - [SystemMessage, HumanMessage(요약), 최근 대화 턴...]
+
+    Example:
+        ```python
+        # 압축 전: 50개 메시지, 150k tokens
+        # [SystemMessage, msg1, msg2, ..., msg48, HumanMessage("최신 요청"), AIMessage]
+
+        messages = await compact_messages(messages)
+
+        # 압축 후: 4개 메시지, 5k tokens
+        # [SystemMessage, HumanMessage("요약..."), HumanMessage("최신 요청"), AIMessage]
+        ```
+
+    📚 학습 포인트:
+        1. **State 교체 메커니즘** (call_agent에서 처리):
+           - 압축했으면 RemoveMessage로 기존 메시지 삭제 (SystemMessage 제외)
+           - 압축된 메시지로 state 교체
+           - 이렇게 해야 다음 턴에서 압축된 state를 유지
+
+        2. **Cooldown 체크**:
+           - 두 번째 메시지가 "[이전 대화 요약]"으로 시작하면 방금 압축한 것
+           - 무한 루프 방지 (압축 → 다시 압축 → ...)
+
+        3. **HumanMessage로 요약**:
+           - SystemMessage 다음 HumanMessage = LLM이 학습한 일반적인 패턴
+           - AIMessage로 하면 비정상적인 순서 (SystemMessage → AIMessage)
+
+    Note:
+        요약은 Claude Haiku + Extended Thinking으로 생성합니다.
+        별도의 LLM 호출이 발생하지만, 긴 대화를 유지하는 것보다 훨씬 저렴합니다.
+
+    Warning:
+        요약 시 메시지 구조가 변경되므로 **프롬프트 캐싱이 무효화**됩니다.
+        압축 직후 첫 LLM 호출은 전체 프롬프트를 재처리하므로 비용이 증가할 수 있습니다.
+    """
+    from langchain_core.messages import HumanMessage
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 1: 압축 필요 여부 확인 (SystemMessage 제외하고 토큰 체크)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # SystemMessage는 항상 유지되므로 토큰 카운팅에서 제외
+    system_msg = messages[0] if isinstance(messages[0], SystemMessage) else None
+    actual_start_idx = 1 if system_msg else 0
+    actual_messages = messages[actual_start_idx:]
+
+    token_count = _count_tokens(actual_messages)
+    if token_count <= max_tokens:
+        return messages  # 토큰 수가 적으면 압축 불필요
+
+    # 방금 압축했는지 확인 (무한 루프 방지)
+    # 두 번째 메시지가 HumanMessage이고 "[이전 대화 요약]"으로 시작하면 방금 압축한 것
+    if len(messages) >= 2:
+        second_msg = messages[1]
+        if isinstance(second_msg, HumanMessage) and hasattr(second_msg, 'content'):
+            if isinstance(second_msg.content, str) and second_msg.content.startswith("[이전 대화 요약]"):
+                print(f"   ⚠️  방금 압축했으므로 스킵 (무한 루프 방지)\n")
+                return messages
+
+    # 압축 시작 로그
+    print(f"\n🗜️  Auto-compact 시작: {len(messages)}개 메시지, {token_count:,} tokens → {max_tokens:,} 초과")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 2: 메시지 분리 (유지 vs 요약)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # SystemMessage는 이미 위에서 확인했음 (system_msg, actual_start_idx)
+    start_idx = actual_start_idx
+
+    # 최근 대화 턴 유지: 마지막 HumanMessage부터 끝까지
+    # (사용자 요청 + 응답 + 도구 결과를 모두 유지)
+    recent_start_idx = None
+    for i in range(len(messages) - 1, start_idx - 1, -1):
+        if isinstance(messages[i], HumanMessage):
+            recent_start_idx = i
+            break
+
+    # HumanMessage를 못 찾으면 keep_recent 개수만큼 유지
+    if recent_start_idx is None:
+        recent_start_idx = max(start_idx, len(messages) - keep_recent)
+
+    recent_messages = messages[recent_start_idx:]
+
+    # 중간 메시지는 요약 대상
+    middle_messages = messages[start_idx:recent_start_idx]
+
+    if not middle_messages:
+        return messages  # 요약할 메시지가 없으면 그대로 반환
+
+    # 요약할 메시지가 너무 적으면 비효율적 (요약 비용 > 절감 효과)
+    if len(middle_messages) < 5:
+        return messages  # 최소 5개 이상일 때만 압축
+
+    # 압축 시작 알림
+    original_tokens = _count_tokens(messages)
+    recent_tokens = _count_tokens(recent_messages)
+    print(f"\n🗜️  Auto compact: {len(middle_messages)}개 메시지 요약 중... (현재: {original_tokens:,} tokens)")
+
+    # 최근 메시지만으로도 max_tokens를 초과하는지 체크
+    if recent_tokens > max_tokens * 0.8:
+        print(f"   ⚠️  경고: 최근 {keep_recent}개 메시지만으로 {recent_tokens:,} tokens")
+        print(f"   → 압축 효과가 부족합니다! keep_recent를 줄이세요")
+    print()
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 3: LLM으로 중간 메시지 요약
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # 요약용 프롬프트
+    summary_prompt = f"""다음은 이전 대화 히스토리입니다. 핵심 내용을 간결하게 요약해주세요:
+
+# Summary Guidelines
+
+1. 주요 작업과 결정사항 포함
+2. 중요한 기술적 세부사항 유지
+3. 파일 경로, 함수명 등 구체적 정보 보존
+4. 사용자 요구사항과 결과 명시
+5. 3-5문단으로 요약
+
+# Conversation History
+
+{_format_messages_for_summary(middle_messages)}
+
+위 대화를 요약해주세요:"""
+
+    # 요약 LLM 호출 (도구 없이, 빠른 모델 사용)
+    # 💡 Extended thinking 활성화: 더 깊이 있는 요약 생성
+    summary_llm = ChatAnthropic(
+        model="claude-haiku-4-5",  # 빠르고 저렴한 모델
+        temperature=1,  # Extended thinking 사용 시 반드시 1이어야 함
+        api_key=os.getenv("ANTHROPIC_API_KEY"),
+        thinking={
+            "type": "enabled",
+            "budget_tokens": 2048  # thinking 토큰 예산
+        }
+    )
+
+    try:
+        # 이벤트 억제 (astream_events에서 캡처되지 않도록)
+        from langchain_core.runnables import RunnableConfig
+
+        summary_response = await summary_llm.ainvoke(
+            [HumanMessage(content=summary_prompt)],
+            config=RunnableConfig(callbacks=[])  # 콜백 비활성화
+        )
+        summary_content = summary_response.content
+
+        # Thinking이 활성화되면 content가 리스트 형태로 반환됨 (text 블록만 추출)
+        if isinstance(summary_content, list):
+            text_blocks = [block for block in summary_content if block.get('type') == 'text']
+            summary_text = '\n'.join(block.get('text', '') for block in text_blocks)
+        else:
+            summary_text = summary_content
+
+        # 요약 메시지 생성 (HumanMessage 사용)
+        # 💡 SystemMessage 다음에 HumanMessage가 오는 게 LLM이 학습한 일반적인 패턴
+        # 💡 LLM은 이를 "이전 대화 컨텍스트"로 자연스럽게 이해함
+        summary_message = HumanMessage(
+            content=f"[이전 대화 요약]\n\n{summary_text}\n\n[요약 끝 - 최근 대화 계속]"
+        )
+
+    except Exception as e:
+        # 요약 실패 시 폴백: 단순 메시지
+        summary_message = HumanMessage(
+            content=f"[이전 대화 요약 실패: {len(middle_messages)}개 메시지 생략]"
+        )
+        print(f"\n⚠️  요약 생성 실패: {e}\n")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 4: 압축된 메시지 목록 재구성
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    compressed = []
+
+    # 1. SystemMessage 유지
+    if system_msg:
+        compressed.append(system_msg)
+
+    # 2. 요약 메시지 추가
+    compressed.append(summary_message)
+
+    # 3. 최근 메시지 유지 (orphan ToolMessage 제거)
+    cleaned_recent = _remove_orphan_tool_messages(recent_messages)
+
+    # Thinking 없는 AIMessage 수정 (thinking 활성화 시 필수)
+    for i, msg in enumerate(cleaned_recent):
+        if isinstance(msg, AIMessage) and hasattr(msg, 'content'):
+            if isinstance(msg.content, list) and len(msg.content) > 0:
+                # 첫 번째 블록이 thinking이 아니면 수정
+                first_block_type = msg.content[0].get('type')
+                if first_block_type not in ['thinking', 'redacted_thinking']:
+                    # Thinking 블록이 없는 AIMessage는 content를 문자열로 변환
+                    text_blocks = [block.get('text', '') for block in msg.content if block.get('type') == 'text']
+                    if text_blocks:
+                        # 새로운 AIMessage 생성 (tool_calls 유지)
+                        new_msg = AIMessage(content=' '.join(text_blocks))
+                        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                            new_msg.tool_calls = msg.tool_calls
+                        cleaned_recent[i] = new_msg
+
+    compressed.extend(cleaned_recent)
+
+    # 압축 완료 로그
+    compressed_actual = compressed[1:] if system_msg else compressed
+    compressed_tokens = _count_tokens(compressed_actual)
+
+    print(f"✅ 압축 완료: {len(messages)}개 → {len(compressed)}개 메시지, {token_count:,} → {compressed_tokens:,} tokens\n")
+
+    # 압축 후에도 토큰 수가 여전히 많으면 경고
+    if compressed_tokens > max_tokens:
+        print(f"   ⚠️  경고: 압축 후에도 {compressed_tokens:,} > {max_tokens:,} tokens")
+        print(f"   → 최근 대화가 이미 임계값을 초과합니다\n")
+
+    return compressed
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

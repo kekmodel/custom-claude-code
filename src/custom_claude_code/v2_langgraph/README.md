@@ -95,6 +95,62 @@ if tool_name == "task_tool":
 - 도구 필터링으로 권한 제어
 - 완전히 독립적인 실행 컨텍스트
 
+## 주요 기능
+
+### Auto Compact
+
+긴 대화에서 자동으로 메시지를 압축하여 컨텍스트 창을 관리합니다.
+
+**작동 방식**:
+- 토큰 수가 `max_tokens` 초과 시 자동 압축
+- SystemMessage는 **항상** 유지 (state에 유지, 중복 방지)
+- **마지막 대화 턴** 유지 (마지막 HumanMessage부터 끝까지)
+  - 사용자 최신 요청 + AI 응답 + 도구 결과를 완전히 보존
+  - `keep_recent`는 HumanMessage 못 찾을 때만 fallback으로 사용
+- 중간의 오래된 메시지는 LLM(Claude Haiku + Extended Thinking)으로 요약
+- Orphan ToolMessage 자동 제거 (대응하는 tool_call이 없는 ToolMessage)
+
+**설정** (nodes.py에서 조정 가능):
+- `max_tokens`: 압축 트리거 토큰 임계값 (기본: 100,000)
+- `keep_recent`: HumanMessage 못 찾을 때 fallback 메시지 수 (기본: 20)
+
+**핵심 기능**:
+- ✅ 마지막 대화 턴 완전 보존 (HumanMessage → AIMessage → ToolMessages)
+- ✅ State 교체 메커니즘 (RemoveMessage로 압축 결과 유지)
+- ✅ Cooldown 체크 (무한 루프 방지)
+- ✅ Orphan ToolMessage 자동 제거
+- ✅ 메시지 포맷팅 (User/Assistant/Tool 구분)
+- ✅ 전체 메시지 내용 포함 (맥락 보존)
+- ✅ Extended Thinking 호환 (요약은 HumanMessage로 삽입)
+- ✅ 메시지별 토큰 분석 디버깅 (content vs tool_calls 분리)
+
+**주의사항**:
+- ⚠️ 요약 시 메시지 구조 변경 → **프롬프트 캐싱 무효화**
+- 압축 직후 첫 LLM 호출은 전체 프롬프트 재처리 (비용 증가 가능)
+
+**구현 세부사항**:
+
+1. **요약 메시지 타입**: HumanMessage
+   - SystemMessage 다음 HumanMessage = LLM이 학습한 일반적인 패턴
+   - AIMessage로 하면 비정상적 (SystemMessage → AIMessage)
+   - Content는 문자열로 생성 (thinking block 불필요)
+
+2. **State 교체 메커니즘** (중요!):
+   - 문제: LangGraph의 `add_messages` reducer는 기본적으로 append만 함
+   - 로컬 변수 `messages`를 압축해도 `state["messages"]`는 그대로
+   - 다음 턴에서 압축 안 된 원본을 다시 가져옴 → **연속 압축 발생**
+   - 해결: `RemoveMessage`로 기존 메시지 삭제 + 압축된 메시지 추가
+   - SystemMessage는 삭제도, 추가도 하지 않음 (state에 유지, 중복 방지)
+
+3. **Cooldown 체크**:
+   - 두 번째 메시지가 "[이전 대화 요약]"으로 시작하면 방금 압축한 것
+   - 무한 루프 방지 (압축 → 또 압축 → ...)
+
+4. **디버깅 기능**:
+   - `_count_tokens_detailed()`: 메시지별 토큰 분포 상세 분석
+   - 압축 전후 각 메시지의 content/tool_calls 토큰 수 표시
+   - 예: "왜 압축 후 토큰이 다시 증가?" → ToolMessage 하나가 6,000 tokens
+
 ## 사용법
 
 ```bash
