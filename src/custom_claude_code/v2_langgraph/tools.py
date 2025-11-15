@@ -1,9 +1,31 @@
 """
 v2: LangGraph Tools
 
-v1의 도구를 LangChain tool 형식으로 변환
-- @tool 데코레이터 사용
-- v1의 구현 재사용
+🎯 핵심 개념:
+LangGraph에서 도구는 @tool 데코레이터로 매우 간단하게 정의됩니다.
+LangChain이 자동으로 OpenAI function calling 스키마를 생성합니다.
+
+📌 도구 추가 3단계:
+1. @tool 데코레이터를 함수에 추가
+2. Docstring 작성 (필수! LLM이 이것을 보고 도구를 선택함)
+3. TOOLS 리스트에 추가
+
+✨ 자동 처리:
+- 타입 힌트 → JSON Schema 자동 생성
+- Docstring → 도구 설명으로 사용
+- ToolNode가 자동으로 도구 실행
+
+📌 확장 예시:
+```python
+@tool
+def analyze_sentiment(text: str) -> str:
+    '''Analyze sentiment of given text.'''
+    # 구현...
+    return "positive"
+
+# TOOLS에 추가만 하면 끝!
+TOOLS = [..., analyze_sentiment]
+```
 """
 
 import json
@@ -14,23 +36,35 @@ from typing import Optional
 
 from langchain_core.tools import tool
 
-# ============================================================================
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 파일 조작 도구
-# ============================================================================
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
 @tool
 def read_file(file_path: str, offset: Optional[int] = None, limit: Optional[int] = None) -> str:
     """
-    Read a file from the filesystem with line numbers.
+    📖 파일을 읽고 라인 번호와 함께 반환합니다.
+
+    이 도구는 LLM이 코드를 분석하거나 파일 내용을 확인할 때 사용합니다.
 
     Args:
-        file_path: Absolute path to the file to read
-        offset: Line number to start from (1-indexed)
-        limit: Number of lines to read
+        file_path: 읽을 파일의 절대 경로 (필수)
+        offset: 시작 라인 번호 (1부터 시작, 선택)
+        limit: 읽을 라인 수 (선택)
 
     Returns:
-        File contents with line numbers (cat -n style)
+        라인 번호가 포함된 파일 내용 (cat -n 스타일)
+
+    Example:
+        read_file("/path/to/file.py", offset=10, limit=20)
+        → 10번째 줄부터 20줄 읽기
+
+    📌 확장 팁:
+    다른 파일 타입 지원을 추가할 수 있습니다:
+    - PDF 읽기: PyPDF2
+    - Excel 읽기: pandas
+    - 이미지 OCR: pytesseract
     """
     if not os.path.isabs(file_path):
         raise ValueError(f"File path must be absolute, got: {file_path}")
