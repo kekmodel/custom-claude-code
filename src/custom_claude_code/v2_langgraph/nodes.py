@@ -454,144 +454,6 @@ def _count_tokens(messages: list) -> int:
     return total_chars // 4  # 대략적인 추정: 4 characters ≈ 1 token
 
 
-def _count_tokens_detailed(messages: list) -> list[dict]:
-    """
-    메시지별 상세 토큰 정보 계산 (디버깅용)
-
-    Args:
-        messages: 토큰을 계산할 메시지 목록
-
-    Returns:
-        메시지별 정보 리스트:
-        [
-            {
-                'index': 메시지 인덱스,
-                'type': 메시지 타입,
-                'content_tokens': Content 토큰 수,
-                'tool_calls_tokens': Tool calls 토큰 수,
-                'total_tokens': 전체 토큰 수,
-                'preview': 내용 미리보기 (처음 50자)
-            },
-            ...
-        ]
-
-    📚 학습 포인트:
-        이 함수는 압축 전후 토큰 분포를 분석하여 다음을 파악합니다:
-        1. 어떤 메시지가 토큰을 많이 차지하는가? (예: ToolMessage의 긴 출력)
-        2. Thinking content vs tool_calls 중 어느 쪽이 더 큰가?
-        3. 압축 후 토큰이 왜 다시 증가하는가? (연속 압축 디버깅)
-
-        디버깅 예시:
-        - "압축 후 750 tokens → 다음 턴 7,000 tokens" 문제 발견
-        - 메시지별 분포 확인 → ToolMessage 하나가 6,000 tokens 차지
-        - 원인: 긴 파일 내용을 ToolMessage로 반환
-    """
-    import json
-
-    details = []
-
-    for i, msg in enumerate(messages):
-        msg_type = type(msg).__name__
-        content_chars = 0
-        tool_calls_chars = 0
-
-        # Content 계산
-        if hasattr(msg, 'content') and msg.content:
-            content_str = str(msg.content)
-            content_chars = len(content_str)
-
-            # Preview 생성 (처음 50자)
-            if isinstance(msg.content, str):
-                preview = msg.content[:50].replace('\n', ' ')
-            else:
-                preview = str(msg.content)[:50].replace('\n', ' ')
-        else:
-            preview = "(no content)"
-
-        # tool_calls 계산
-        if hasattr(msg, 'tool_calls') and msg.tool_calls:
-            tool_calls_str = json.dumps(msg.tool_calls)
-            tool_calls_chars = len(tool_calls_str)
-            preview += f" + {len(msg.tool_calls)} tool_calls"
-
-        content_tokens = content_chars // 4
-        tool_calls_tokens = tool_calls_chars // 4
-        total_tokens = content_tokens + tool_calls_tokens
-
-        details.append({
-            'index': i,
-            'type': msg_type,
-            'content_tokens': content_tokens,
-            'tool_calls_tokens': tool_calls_tokens,
-            'total_tokens': total_tokens,
-            'preview': preview
-        })
-
-    return details
-
-
-def _remove_orphan_tool_messages(messages: list) -> list:
-    """
-    Orphan ToolMessage 제거
-
-    압축 후 최근 메시지에 ToolMessage가 있지만 대응하는 AIMessage의 tool_call이
-    요약되어 사라진 경우, 해당 ToolMessage를 제거합니다.
-
-    Args:
-        messages: 정리할 메시지 목록
-
-    Returns:
-        Orphan ToolMessage가 제거된 메시지 목록
-
-    Note:
-        Claude API는 ToolMessage마다 이전 메시지에 대응하는 tool_call이 있어야 합니다.
-        없으면 BadRequestError 발생!
-
-        중요: 하나의 AIMessage에 여러 tool_calls가 있을 수 있으므로,
-        바로 직전 메시지가 아니라 **가장 최근 AIMessage with tool_calls**를 찾아야 합니다.
-    """
-    from langchain_core.messages import ToolMessage
-
-    cleaned = []
-
-    for i, msg in enumerate(messages):
-        if isinstance(msg, ToolMessage):
-            # 이전 메시지들을 역순으로 탐색하여 가장 최근 AIMessage with tool_calls 찾기
-            found_match = False
-
-            for j in range(i - 1, -1, -1):
-                prev_msg = messages[j]
-
-                if isinstance(prev_msg, AIMessage):
-                    # tool_calls가 있는 AIMessage를 찾음
-                    if hasattr(prev_msg, 'tool_calls') and prev_msg.tool_calls:
-                        # tool_call_id 목록 추출
-                        tool_call_ids = []
-                        for tc in prev_msg.tool_calls:
-                            if isinstance(tc, dict):
-                                tool_call_ids.append(tc.get('id'))
-                            else:
-                                tool_call_ids.append(getattr(tc, 'id', None))
-
-                        # 매칭되는 tool_call_id가 있으면 유지
-                        msg_tool_call_id = getattr(msg, 'tool_call_id', None)
-                        if msg_tool_call_id in tool_call_ids:
-                            found_match = True
-                            break
-                    # else: tool_calls가 없어도 계속 찾기 (더 이전의 AIMessage 확인)
-
-            if found_match:
-                cleaned.append(msg)
-            else:
-                # Orphan ToolMessage - 제거 (skip)
-                print(f"⚠️  Orphan ToolMessage 제거: tool_call_id={getattr(msg, 'tool_call_id', 'unknown')}")
-        else:
-            # ToolMessage가 아니면 그대로 유지
-            cleaned.append(msg)
-
-    return cleaned
-
-
 def _format_messages_for_summary(messages: list) -> str:
     """
     메시지 목록을 요약용 텍스트로 포맷팅
@@ -632,8 +494,7 @@ def _format_messages_for_summary(messages: list) -> str:
 
 async def compact_messages(
     messages: list,
-    max_tokens: int = 100_000,  # 프로덕션 기준
-    keep_recent: int = 20        # Fallback용 (주로 마지막 대화 턴 유지)
+    max_tokens: int = 100_000  # 프로덕션 기준
 ) -> list:
     """
     🗜️ 대화 히스토리 자동 압축
@@ -643,16 +504,14 @@ async def compact_messages(
 
     📌 압축 전략 (Claude Code 방식):
     1. **항상** 유지: SystemMessage (첫 메시지, state에 이미 존재)
-    2. **우선** 유지: 마지막 대화 턴 (마지막 HumanMessage부터 끝까지)
+    2. **항상** 유지: 마지막 대화 턴 (마지막 HumanMessage부터 끝까지)
        - 사용자의 최신 요청 + AI 응답 + 도구 결과를 완전히 보존
-       - keep_recent는 HumanMessage를 못 찾을 때만 fallback으로 사용
+       - 정상 대화에서 HumanMessage는 항상 존재함 (사용자가 먼저 질문)
     3. 요약 대상: 중간의 오래된 메시지들
-    4. Orphan ToolMessage 제거: 대응하는 tool_call이 없는 ToolMessage 삭제
 
     Args:
         messages: 압축할 메시지 목록
         max_tokens: 압축 트리거 토큰 임계값 (기본: 100,000)
-        keep_recent: HumanMessage 못 찾을 때 fallback으로 유지할 메시지 수 (기본: 20)
 
     Returns:
         압축된 메시지 목록
@@ -682,6 +541,10 @@ async def compact_messages(
         3. **HumanMessage로 요약**:
            - SystemMessage 다음 HumanMessage = LLM이 학습한 일반적인 패턴
            - AIMessage로 하면 비정상적인 순서 (SystemMessage → AIMessage)
+
+        4. **단순화된 로직** (교육용):
+           - HumanMessage는 항상 존재 (사용자가 먼저 질문) → fallback 불필요
+           - 마지막 대화 턴 완전 유지 → Orphan ToolMessage 발생 안 함
 
     Note:
         요약은 Claude Haiku + Extended Thinking으로 생성합니다.
@@ -727,38 +590,23 @@ async def compact_messages(
 
     # 최근 대화 턴 유지: 마지막 HumanMessage부터 끝까지
     # (사용자 요청 + 응답 + 도구 결과를 모두 유지)
+    # 💡 정상 대화에서 HumanMessage는 항상 존재 (사용자가 먼저 질문)
     recent_start_idx = None
     for i in range(len(messages) - 1, start_idx - 1, -1):
         if isinstance(messages[i], HumanMessage):
             recent_start_idx = i
             break
 
-    # HumanMessage를 못 찾으면 keep_recent 개수만큼 유지
-    if recent_start_idx is None:
-        recent_start_idx = max(start_idx, len(messages) - keep_recent)
+    # 정상 대화에서는 항상 HumanMessage 존재 (assert로 명시)
+    assert recent_start_idx is not None, \
+        "정상 대화에서 HumanMessage는 항상 존재합니다 (사용자가 먼저 질문)"
 
     recent_messages = messages[recent_start_idx:]
-
-    # 중간 메시지는 요약 대상
     middle_messages = messages[start_idx:recent_start_idx]
 
-    if not middle_messages:
-        return messages  # 요약할 메시지가 없으면 그대로 반환
-
-    # 요약할 메시지가 너무 적으면 비효율적 (요약 비용 > 절감 효과)
+    # 요약할 메시지가 없거나 너무 적으면 압축 불필요
     if len(middle_messages) < 5:
         return messages  # 최소 5개 이상일 때만 압축
-
-    # 압축 시작 알림
-    original_tokens = _count_tokens(messages)
-    recent_tokens = _count_tokens(recent_messages)
-    print(f"\n🗜️  Auto compact: {len(middle_messages)}개 메시지 요약 중... (현재: {original_tokens:,} tokens)")
-
-    # 최근 메시지만으로도 max_tokens를 초과하는지 체크
-    if recent_tokens > max_tokens * 0.8:
-        print(f"   ⚠️  경고: 최근 {keep_recent}개 메시지만으로 {recent_tokens:,} tokens")
-        print(f"   → 압축 효과가 부족합니다! keep_recent를 줄이세요")
-    print()
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Step 3: LLM으로 중간 메시지 요약
@@ -837,11 +685,12 @@ async def compact_messages(
     # 2. 요약 메시지 추가
     compressed.append(summary_message)
 
-    # 3. 최근 메시지 유지 (orphan ToolMessage 제거)
-    cleaned_recent = _remove_orphan_tool_messages(recent_messages)
+    # 3. 최근 메시지 유지
+    # 💡 마지막 HumanMessage부터 끝까지 유지하므로 완전한 대화 턴 보장
+    # → Orphan ToolMessage 발생하지 않음!
 
     # Thinking 없는 AIMessage 수정 (thinking 활성화 시 필수)
-    for i, msg in enumerate(cleaned_recent):
+    for i, msg in enumerate(recent_messages):
         if isinstance(msg, AIMessage) and hasattr(msg, 'content'):
             if isinstance(msg.content, list) and len(msg.content) > 0:
                 # 첫 번째 블록이 thinking이 아니면 수정
@@ -854,9 +703,9 @@ async def compact_messages(
                         new_msg = AIMessage(content=' '.join(text_blocks))
                         if hasattr(msg, 'tool_calls') and msg.tool_calls:
                             new_msg.tool_calls = msg.tool_calls
-                        cleaned_recent[i] = new_msg
+                        recent_messages[i] = new_msg
 
-    compressed.extend(cleaned_recent)
+    compressed.extend(recent_messages)
 
     # 압축 완료 로그
     compressed_actual = compressed[1:] if system_msg else compressed

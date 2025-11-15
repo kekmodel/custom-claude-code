@@ -106,23 +106,20 @@ if tool_name == "task_tool":
 - SystemMessage는 **항상** 유지 (state에 유지, 중복 방지)
 - **마지막 대화 턴** 유지 (마지막 HumanMessage부터 끝까지)
   - 사용자 최신 요청 + AI 응답 + 도구 결과를 완전히 보존
-  - `keep_recent`는 HumanMessage 못 찾을 때만 fallback으로 사용
+  - 정상 대화에서 HumanMessage는 항상 존재 (사용자가 먼저 질문)
 - 중간의 오래된 메시지는 LLM(Claude Haiku + Extended Thinking)으로 요약
-- Orphan ToolMessage 자동 제거 (대응하는 tool_call이 없는 ToolMessage)
 
 **설정** (nodes.py에서 조정 가능):
 - `max_tokens`: 압축 트리거 토큰 임계값 (기본: 100,000)
-- `keep_recent`: HumanMessage 못 찾을 때 fallback 메시지 수 (기본: 20)
 
 **핵심 기능**:
 - ✅ 마지막 대화 턴 완전 보존 (HumanMessage → AIMessage → ToolMessages)
 - ✅ State 교체 메커니즘 (RemoveMessage로 압축 결과 유지)
 - ✅ Cooldown 체크 (무한 루프 방지)
-- ✅ Orphan ToolMessage 자동 제거
 - ✅ 메시지 포맷팅 (User/Assistant/Tool 구분)
 - ✅ 전체 메시지 내용 포함 (맥락 보존)
 - ✅ Extended Thinking 호환 (요약은 HumanMessage로 삽입)
-- ✅ 메시지별 토큰 분석 디버깅 (content vs tool_calls 분리)
+- ✅ 간결한 로그 (압축 전후 요약만)
 
 **주의사항**:
 - ⚠️ 요약 시 메시지 구조 변경 → **프롬프트 캐싱 무효화**
@@ -146,10 +143,10 @@ if tool_name == "task_tool":
    - 두 번째 메시지가 "[이전 대화 요약]"으로 시작하면 방금 압축한 것
    - 무한 루프 방지 (압축 → 또 압축 → ...)
 
-4. **디버깅 기능**:
-   - `_count_tokens_detailed()`: 메시지별 토큰 분포 상세 분석
-   - 압축 전후 각 메시지의 content/tool_calls 토큰 수 표시
-   - 예: "왜 압축 후 토큰이 다시 증가?" → ToolMessage 하나가 6,000 tokens
+4. **단순화된 로직** (교육용):
+   - HumanMessage는 항상 존재 → fallback 로직 불필요
+   - 마지막 대화 턴 완전 유지 → Orphan ToolMessage 발생하지 않음
+   - 불필요한 안전장치 제거로 코드 명확성 향상
 
 ## 사용법
 
