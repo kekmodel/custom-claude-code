@@ -145,6 +145,25 @@ class EventHandler:
 
         # AIMessage 추가 및 도구 호출 표시
         if output and isinstance(output, AIMessage):
+            # 🔍 디버깅: 메시지 추가 로그
+            msg_id = getattr(output, 'id', 'N/A')
+            tool_calls = [tc.get('name') for tc in output.tool_calls] if output.tool_calls else []
+
+            # content 추출 (list일 수도 있음)
+            content_preview = ""
+            if output.content:
+                if isinstance(output.content, list):
+                    text_blocks = [b.get('text', '') for b in output.content if b.get('type') == 'text']
+                    content_preview = ' '.join(text_blocks)[:100]
+                else:
+                    content_preview = str(output.content)[:100]
+
+            print(f"\n[DEBUG] EventHandler.handle_chat_model_end:")
+            print(f"  현재 메시지 수: {len(self.messages)}")
+            print(f"  추가할 AIMessage id: {msg_id}")
+            print(f"  tool_calls: {tool_calls}")
+            print(f"  content: {content_preview}...")
+
             self.messages.append(output)
             self._display_tool_calls(output.tool_calls)
 
@@ -162,6 +181,17 @@ class EventHandler:
             if "messages" in output:
                 for msg in output["messages"]:
                     if isinstance(msg, ToolMessage):
+                        # 🔍 디버깅: ToolMessage 추가 로그
+                        msg_id = getattr(msg, 'id', 'N/A')
+                        tool_name = getattr(msg, 'name', 'unknown')
+                        content_preview = str(msg.content)[:100] if msg.content else ""
+
+                        print(f"\n[DEBUG] EventHandler.handle_chain_end:")
+                        print(f"  현재 메시지 수: {len(self.messages)}")
+                        print(f"  추가할 ToolMessage id: {msg_id}")
+                        print(f"  tool_name: {tool_name}")
+                        print(f"  content: {content_preview}...")
+
                         self.messages.append(msg)
                         self._display_tool_result(msg)
 
@@ -196,6 +226,66 @@ class EventHandler:
 
     def get_final_messages(self):
         """누적된 최종 메시지 반환"""
+        # 🔍 디버깅: 최종 메시지 구조 출력
+        print(f"\n{'='*80}")
+        print(f"[DEBUG] EventHandler.get_final_messages:")
+        print(f"  총 메시지 수: {len(self.messages)}")
+        print(f"{'='*80}")
+
+        for i, msg in enumerate(self.messages):
+            msg_type = type(msg).__name__
+            msg_id = getattr(msg, 'id', 'N/A')[:20] if hasattr(msg, 'id') else 'N/A'
+
+            # content 추출
+            content_preview = ""
+            if hasattr(msg, 'content') and msg.content:
+                if isinstance(msg.content, list):
+                    text_blocks = [b.get('text', '') for b in msg.content if b.get('type') == 'text']
+                    content_preview = ' '.join(text_blocks)[:80]
+                else:
+                    content_preview = str(msg.content)[:80]
+
+            if isinstance(msg, AIMessage) and hasattr(msg, "tool_calls") and msg.tool_calls:
+                tool_calls = [tc.get('name') for tc in msg.tool_calls]
+                print(f"  [{i}] {msg_type:15} id=...{msg_id}")
+                print(f"      tool_calls: {tool_calls}")
+                print(f"      content: {content_preview}...")
+            elif isinstance(msg, ToolMessage):
+                tool_name = getattr(msg, 'name', 'unknown')
+                print(f"  [{i}] {msg_type:15} id=...{msg_id} name={tool_name}")
+                print(f"      content: {content_preview}...")
+            else:
+                print(f"  [{i}] {msg_type:15} id=...{msg_id}")
+                if content_preview:
+                    print(f"      content: {content_preview}...")
+
+        # 연속 AIMessage 감지
+        print(f"\n🔍 연속 AIMessage 체크:")
+        consecutive_found = False
+        for i in range(len(self.messages) - 1):
+            if isinstance(self.messages[i], AIMessage) and isinstance(self.messages[i + 1], AIMessage):
+                consecutive_found = True
+                msg1_id = getattr(self.messages[i], 'id', 'N/A')
+                msg2_id = getattr(self.messages[i + 1], 'id', 'N/A')
+
+                # content 비교
+                content1 = self.messages[i].content
+                content2 = self.messages[i + 1].content
+                same_content = (str(content1) == str(content2))
+
+                tool_calls1 = [tc.get('name') for tc in self.messages[i].tool_calls] if self.messages[i].tool_calls else []
+                tool_calls2 = [tc.get('name') for tc in self.messages[i + 1].tool_calls] if self.messages[i + 1].tool_calls else []
+
+                print(f"  ⚠️  [{i}]-[{i+1}] 연속 AIMessage 발견!")
+                print(f"      [{i}] id={msg1_id}, tool_calls={tool_calls1}")
+                print(f"      [{i+1}] id={msg2_id}, tool_calls={tool_calls2}")
+                print(f"      같은 ID: {msg1_id == msg2_id}")
+                print(f"      같은 content: {same_content}")
+
+        if not consecutive_found:
+            print(f"  ✅ 연속 AIMessage 없음")
+
+        print(f"{'='*80}\n")
         return self.messages
 
 

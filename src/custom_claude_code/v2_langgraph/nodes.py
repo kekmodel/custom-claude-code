@@ -9,10 +9,11 @@ import os
 from typing import Literal
 
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END
 
+from .config import V2Config
+from .models import get_model
 from .prompts import (
     get_conversation_summary_prompt,
     get_subagent_system_prompt,
@@ -23,13 +24,8 @@ from .types import AgentState
 
 load_dotenv()
 
-model = ChatAnthropic(
-    model="claude-haiku-4-5",
-    temperature=1,
-    api_key=os.getenv("ANTHROPIC_API_KEY"),
-    thinking={"type": "enabled", "budget_tokens": 2048},
-)
-
+# 중앙 설정에서 모델 가져오기
+model = get_model(**V2Config.get_model_config())
 model_with_tools = model.bind_tools(TOOLS)
 
 
@@ -71,6 +67,14 @@ async def call_agent(state: AgentState) -> dict:
                             else ""
                         )
                         error_msg.append(f"   [{idx}] {msg_type} {has_tools}")
+
+                    # 🔍 디버깅: 연속 AIMessage 상세 정보
+                    if idx > 0 and isinstance(messages[idx-1], AIMessage):
+                        error_msg.append(f"\n🔍 연속 AIMessage 디버깅:")
+                        error_msg.append(f"   [{idx-1}] tool_calls: {[tc.get('name') for tc in messages[idx-1].tool_calls]}")
+                        error_msg.append(f"   [{idx-1}] id: {getattr(messages[idx-1], 'id', 'N/A')}")
+                        error_msg.append(f"   [{idx}] tool_calls: {[tc.get('name') for tc in messages[idx].tool_calls]}")
+                        error_msg.append(f"   [{idx}] id: {getattr(messages[idx], 'id', 'N/A')}")
 
                     raise ValueError("\n".join(error_msg))
 
@@ -205,12 +209,8 @@ async def compact_messages(messages: list, max_tokens: int = 100_000) -> list:
 
     formatted_messages = _format_messages_for_summary(middle_messages)
     summary_prompt = get_conversation_summary_prompt(formatted_messages)
-    summary_llm = ChatAnthropic(
-        model="claude-haiku-4-5",
-        temperature=1,
-        api_key=os.getenv("ANTHROPIC_API_KEY"),
-        thinking={"type": "enabled", "budget_tokens": 2048},
-    )
+    # 요약용 모델 (빠른 모델 사용)
+    summary_llm = get_model(provider="anthropic", model_name="claude-haiku-4-5")
 
     try:
         from langchain_core.runnables import RunnableConfig
@@ -287,12 +287,15 @@ async def execute_subagent(
     if current_depth >= max_depth:
         return f"[ERROR] Max subagent depth ({max_depth}) exceeded"
 
-    model_map = {
-        "haiku": "claude-haiku-4-5",
-        "sonnet": "claude-sonnet-4-5-20250929",
-        "opus": "claude-opus-4-20250514",
-    }
-    full_model_name = model_map.get(model_name, model_name)
+    # 모델 이름 처리 (별칭 지원)
+    from .models import MODEL_ALIASES
+
+    if model_name in MODEL_ALIASES:
+        provider, full_model_name = MODEL_ALIASES[model_name]
+    else:
+        # 전체 모델 이름이거나 기본값
+        provider = "anthropic"
+        full_model_name = model_name
 
     excluded_tools = {"task_tool", "todo_write", "exit_plan_mode"}
     allowed_tools = [t for t in TOOLS if t.name not in excluded_tools]
@@ -321,12 +324,8 @@ async def execute_subagent(
                 print(f"   → 마지막 AIMessage 제거하여 연속된 AIMessage 방지\n")
                 msgs = msgs[:-1]
 
-        llm = ChatAnthropic(
-            model=full_model_name,
-            temperature=1,
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
-            thinking={"type": "enabled", "budget_tokens": 2048},
-        )
+        # Subagent용 모델 생성
+        llm = get_model(provider=provider, model_name=full_model_name)
         llm_with_tools = llm.bind_tools(allowed_tools)
         response = llm_with_tools.invoke(msgs)
         return {"messages": [response]}
