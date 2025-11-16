@@ -95,6 +95,7 @@ class EventHandler:
         self.panel_manager = LivePanelManager()
         self.messages = list(initial_messages)  # 초기 메시지로 시작
         self.todos = None
+        self.task_tool_depth = 0  # task_tool 중첩 깊이 추적
 
     def handle_chain_start(self, event: dict):
         """노드 시작 이벤트"""
