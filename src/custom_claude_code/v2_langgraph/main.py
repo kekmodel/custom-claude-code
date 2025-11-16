@@ -60,9 +60,7 @@ class LivePanelManager:
             self.thinking_live = None
 
         self.current_content += text
-        panel = Panel(
-            Markdown(self.current_content), title="[bold blue]Assistant[/bold blue]", border_style="blue"
-        )
+        panel = Panel(Markdown(self.current_content), title="[bold blue]Assistant[/bold blue]", border_style="blue")
 
         if self.content_live is None:
             self.content_live = Live(panel, console=console, refresh_per_second=10)
@@ -93,9 +91,10 @@ class LivePanelManager:
 class EventHandler:
     """LangGraph astream_events 이벤트 처리"""
 
-    def __init__(self):
+    def __init__(self, initial_messages: list):
         self.panel_manager = LivePanelManager()
-        self.collected_messages = []
+        self.messages = list(initial_messages)  # 초기 메시지로 시작
+        self.todos = None
 
     def handle_chain_start(self, event: dict):
         """노드 시작 이벤트"""
@@ -135,11 +134,18 @@ class EventHandler:
         """LLM 응답 완료 이벤트"""
         self.panel_manager.close_all()
 
+        # 🔍 subagent 이벤트는 무시 (중복 방지)
+        tags = event.get("tags", [])
+        if not any(tag in ["agent", "seq:step:1", "graph:step:1"] for tag in tags):
+            self.panel_manager.reset()
+            return
+
         data = event.get("data", {})
         output = data.get("output")
 
+        # AIMessage 추가 및 도구 호출 표시
         if output and isinstance(output, AIMessage):
-            self.collected_messages.append(output)
+            self.messages.append(output)
             self._display_tool_calls(output.tool_calls)
 
         self.panel_manager.reset()
@@ -156,10 +162,11 @@ class EventHandler:
             if "messages" in output:
                 for msg in output["messages"]:
                     if isinstance(msg, ToolMessage):
+                        self.messages.append(msg)
                         self._display_tool_result(msg)
-                        self.collected_messages.append(msg)
 
             if "todos" in output and output["todos"]:
+                self.todos = output["todos"]
                 display_todos(output["todos"])
 
     def _display_tool_calls(self, tool_calls):
@@ -185,15 +192,11 @@ class EventHandler:
     def _display_tool_result(self, msg: ToolMessage):
         """도구 실행 결과 표시"""
         result = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
-        console.print(f"[dim]  → Result: {result}[/dim]\n")
+        console.print(f"[dim]  → Result:\n{result}[/dim]\n")
 
-    def get_collected_messages(self):
-        """수집된 메시지 반환"""
-        return self.collected_messages
-
-    def reset_collected_messages(self):
-        """수집된 메시지 초기화"""
-        self.collected_messages = []
+    def get_final_messages(self):
+        """누적된 최종 메시지 반환"""
+        return self.messages
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -241,7 +244,7 @@ def display_message(message):
 
     elif isinstance(message, ToolMessage):
         result = message.content[:500] + "..." if len(message.content) > 500 else message.content
-        console.print(f"[dim]  → Result: {result}[/dim]\n")
+        console.print(f"[dim]  → Result:\n{result}[/dim]\n")
 
 
 def display_todos(todos):
@@ -317,25 +320,19 @@ async def handle_command(user_input: str, messages: list) -> bool:
 
 async def process_graph_stream(messages: list, working_dir: str):
     """
-    LangGraph 실행 및 이벤트 스트림 처리
+    LangGraph 실행 및 스트림 처리 (astream_events - 1회 실행, thinking 표시)
 
     Args:
         messages: 대화 메시지 목록
         working_dir: 현재 작업 디렉토리
     """
-    handler = EventHandler()
+    handler = EventHandler(initial_messages=messages)
     config = {"recursion_limit": 50}
+    initial_state = {"messages": messages, "working_dir": working_dir, "depth": 0, "todos": None}
 
     try:
-        # astream_events: LangGraph 실행을 이벤트 스트림으로 받기
-        # version="v2": 이벤트 스키마 버전 (v2가 최신)
-        async for event in graph.astream_events(
-            {"messages": messages, "working_dir": working_dir, "depth": 0, "todos": None},
-            config=config,
-            version="v2",
-        ):
-            # 이벤트 종류: on_chain_start (노드 시작), on_chat_model_stream (토큰),
-            # on_chat_model_end (LLM 완료), on_chain_end (노드 완료)
+        # astream_events: 토큰 단위 스트리밍 + 메시지 누적 (1회 실행)
+        async for event in graph.astream_events(initial_state, config=config, version="v2"):
             kind = event.get("event")
 
             if kind == "on_chain_start":
@@ -347,8 +344,10 @@ async def process_graph_stream(messages: list, working_dir: str):
             elif kind == "on_chain_end":
                 handler.handle_chain_end(event)
 
-        # 수집된 메시지를 히스토리에 추가
-        messages.extend(handler.get_collected_messages())
+        # EventHandler에서 누적한 최종 메시지로 업데이트
+        final_messages = handler.get_final_messages()
+        messages.clear()
+        messages.extend(final_messages)
 
     except Exception as e:
         console.print(f"[red]Error: {type(e).__name__}: {str(e)}[/red]")

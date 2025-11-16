@@ -8,6 +8,17 @@ This is a **research and educational project** that analyzes Claude Code's inter
 
 **Key Purpose**: Understand Claude Code's 50k+ token system prompt, 16 tools, DAG-based workflow, and multi-agent architecture through complete implementations.
 
+### Recent Updates
+
+**v2 LangGraph Refactoring & Fixes** (2025-01):
+- ✅ **Code refactoring** - Simplified comments to essential core concepts only (~54% reduction)
+- ✅ **main.py restructuring** - Extracted LivePanelManager and EventHandler classes for better separation of concerns
+- ✅ **AIMessage duplication fix** - Resolved consecutive AIMessage errors by filtering subagent events
+- ✅ **Message structure validation** - All tests pass: no consecutive AIMessages, proper User/Assistant alternation
+- 📝 **Documentation** - Added AIMESSAGE_DUPLICATION_FIX.md explaining the issue and solution
+- 📝 **Test coverage** - Created test_aimessage_fix.py and test_integration_fix.py for regression testing
+- ⚠️ **Known limitation** - Graph still executes twice (astream_events + ainvoke) for state management; future optimization planned with astream()
+
 ## Project Structure
 
 ```
@@ -272,6 +283,14 @@ Check `.env` file has correct keys for the version being tested
 ```bash
 uv add langchain-openai
 ```
+
+### Consecutive AIMessages Error (v2) ✅ FIXED
+If you see "messages: roles must alternate user/assistant" error:
+- **Fixed in latest version** - Subagent events are now filtered to prevent duplicate AIMessages
+- **Root cause**: EventHandler was collecting AIMessages from both main agent and subagents
+- **Solution**: Added tag-based filtering in handle_chat_model_end() to ignore subagent events
+- **Verification**: Run `uv run python test_aimessage_fix.py` to confirm fix
+- See `docs/05-improvements/AIMESSAGE_DUPLICATION_FIX.md` for detailed explanation
 
 ### Version-Specific Issues
 Check version-specific README.md files for detailed guidance
