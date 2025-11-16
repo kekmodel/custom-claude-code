@@ -45,8 +45,12 @@ from langchain_core.tools import tool
 def read_file(file_path: str, offset: Optional[int] = None, limit: Optional[int] = None) -> str:
     """Reads a file from the local filesystem. You can access any file directly by using this tool.
 
+    IMPORTANT: This tool can only read FILES, not directories. If you need to list directory contents,
+    use glob_files() or run_bash with 'ls' command instead.
+
     Usage:
     - The file_path parameter must be an absolute path, not a relative path
+    - The path must point to a file, not a directory
     - By default, it reads up to 2000 lines starting from the beginning of the file
     - You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
     - Any lines longer than 2000 characters will be truncated
@@ -66,6 +70,12 @@ def read_file(file_path: str, offset: Optional[int] = None, limit: Optional[int]
 
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
+
+    if os.path.isdir(file_path):
+        raise IsADirectoryError(
+            f"Cannot read directory as file: {file_path}\n"
+            f"Hint: Use glob_files() to list directory contents, or specify a file inside the directory."
+        )
 
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         lines = f.readlines()
@@ -522,7 +532,6 @@ def task_tool(
     prompt: str,
     subagent_type: str,
     model: Optional[str] = None,
-    resume: Optional[str] = None,
 ) -> str:
     """Launch a new agent to handle complex, multi-step tasks autonomously.
 
@@ -555,7 +564,6 @@ def task_tool(
         prompt: The task for the agent to perform
         subagent_type: The type of specialized agent to use (general-purpose, Explore, Plan)
         model: Optional model to use for this agent (sonnet, opus, haiku). If not specified, inherits from parent. Prefer haiku for quick, straightforward tasks to minimize cost and latency.
-        resume: Optional agent ID to resume from. If provided, the agent will continue from the previous execution transcript.
 
     Returns:
         Subagent report
