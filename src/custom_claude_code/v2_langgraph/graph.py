@@ -41,12 +41,10 @@ LangGraph의 핵심 개념:
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.prebuilt import ToolNode
 
 from .nodes import call_agent, execute_subagent, get_system_prompt, should_continue
-from .tools import TOOLS, TOOLS_BY_NAME
+from .tools import TOOLS_BY_NAME
 from .types import AgentState
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 커스텀 도구 실행 노드 (Subagent 지원)
@@ -80,7 +78,7 @@ async def execute_tools(state: AgentState) -> dict:
        │   → state의 todos 업데이트              │
        │                                         │
        │ 기타                                    │
-       │   → TOOLS_BY_NAME에서 도구 찾아 실행     │
+       │   → TOOLS_BY_NAME에서 도구 찾아 실행    │
        └─────────────────────────────────────────┘
     3. 결과를 ToolMessage로 변환
     4. {"messages": [...], "todos": [...]} 반환

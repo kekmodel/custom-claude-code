@@ -29,7 +29,6 @@ TOOLS = [..., analyze_sentiment]
 """
 
 import fnmatch
-import json
 import os
 import subprocess
 from glob import glob as python_glob

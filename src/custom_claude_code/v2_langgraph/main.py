@@ -252,13 +252,13 @@ async def run_conversation_loop():
     3. HumanMessage로 변환하여 messages에 추가
     4. graph.astream() 호출:
        ┌─────────────────────────────────────────┐
-       │ graph.astream() 내부:                   │
+       │ graph.astream() 내부:                    │
        ├─────────────────────────────────────────┤
        │ START → agent → should_continue         │
        │   ↓              ↓                      │
        │ tools ←────── "tools"                   │
        │   ↓                                     │
-       │ agent (결과 처리) → END                 │
+       │ agent (결과 처리) → END                   │
        └─────────────────────────────────────────┘
     5. 각 노드의 업데이트를 이벤트로 수신 (스트리밍!)
     6. 새 메시지 표시 및 히스토리 업데이트
@@ -393,8 +393,6 @@ async def run_conversation_loop():
             # 그래프 시각화 (Mermaid 다이어그램)
             console.print("[yellow]Graph visualization:[/yellow]")
             try:
-                from IPython.display import Image
-
                 img = graph.get_graph().draw_mermaid_png()
                 console.print("[green]Graph saved to graph.png[/green]")
                 with open("graph.png", "wb") as f:

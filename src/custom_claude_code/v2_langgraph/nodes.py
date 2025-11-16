@@ -23,14 +23,14 @@ START → agent → should_continue → [tools → agent] or [END]
 import os
 import platform as platform_module
 from datetime import datetime
-from typing import Any, Dict, Literal
+from typing import Literal
 
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, SystemMessage
 from langgraph.graph import END
 
-from .tools import TOOLS, TOOLS_BY_NAME
+from .tools import TOOLS
 from .types import AgentState
 
 # .env 파일 로드 (모델 초기화 전에 필요)
@@ -167,10 +167,7 @@ model = ChatAnthropic(
     temperature=1,  # Extended thinking 사용 시 반드시 1이어야 함
     api_key=os.getenv("ANTHROPIC_API_KEY"),
     # Extended thinking 활성화 (Haiku 4.5부터 지원!)
-    thinking={
-        "type": "enabled",
-        "budget_tokens": 2048  # thinking 토큰 예산 (최소 1024)
-    }
+    thinking={"type": "enabled", "budget_tokens": 2048},  # thinking 토큰 예산 (최소 1024)
 )
 
 # 도구와 함께 바인딩 (중요! 이래야 LLM이 도구를 호출할 수 있음)
@@ -330,12 +327,11 @@ async def call_agent(state: AgentState) -> dict:
         # - 압축된 messages에도 SystemMessage 포함
         # - 두 번 추가하면 "multiple non-consecutive system messages" 에러
         # - 해결: SystemMessage는 삭제도, 추가도 하지 않음 (state에 유지)
-
         # SystemMessage 제외한 기존 메시지 모두 삭제
         remove_messages = [
             RemoveMessage(id=msg.id)
             for msg in state["messages"]
-            if not isinstance(msg, SystemMessage) and hasattr(msg, 'id') and msg.id is not None
+            if not isinstance(msg, SystemMessage) and hasattr(msg, "id") and msg.id is not None
         ]
 
         # 압축된 메시지에서도 SystemMessage 제외 (이미 state에 있으므로)
@@ -442,11 +438,11 @@ def _count_tokens(messages: list) -> int:
 
     for msg in messages:
         # Content 계산
-        if hasattr(msg, 'content') and msg.content:
+        if hasattr(msg, "content") and msg.content:
             total_chars += len(str(msg.content))
 
         # tool_calls 계산 (AIMessage)
-        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
             # tool_calls를 JSON으로 변환하여 문자 수 계산
             tool_calls_str = json.dumps(msg.tool_calls)
             total_chars += len(tool_calls_str)
@@ -480,22 +476,19 @@ def _format_messages_for_summary(messages: list) -> str:
             if msg.content:
                 formatted.append(f"Assistant: {msg.content}")  # 전체 포함
             # 도구 호출이 있으면 포함
-            if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                tool_names = [tc.get('name', 'unknown') for tc in msg.tool_calls]
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                tool_names = [tc.get("name", "unknown") for tc in msg.tool_calls]
                 formatted.append(f"Assistant: [도구 호출: {', '.join(tool_names)}]")
         elif isinstance(msg, ToolMessage):
             # ToolMessage의 name 속성 안전하게 접근
-            tool_name = getattr(msg, 'name', 'unknown_tool')
+            tool_name = getattr(msg, "name", "unknown_tool")
             content = str(msg.content) if msg.content else "(empty)"
             formatted.append(f"Tool({tool_name}): {content}")  # 전체 포함
 
     return "\n".join(formatted)
 
 
-async def compact_messages(
-    messages: list,
-    max_tokens: int = 100_000  # 프로덕션 기준
-) -> list:
+async def compact_messages(messages: list, max_tokens: int = 100_000) -> list:  # 프로덕션 기준
     """
     🗜️ 대화 히스토리 자동 압축
 
@@ -559,7 +552,6 @@ async def compact_messages(
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Step 1: 압축 필요 여부 확인 (SystemMessage 제외하고 토큰 체크)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
     # SystemMessage는 항상 유지되므로 토큰 카운팅에서 제외
     system_msg = messages[0] if isinstance(messages[0], SystemMessage) else None
     actual_start_idx = 1 if system_msg else 0
@@ -573,7 +565,7 @@ async def compact_messages(
     # 두 번째 메시지가 HumanMessage이고 "[이전 대화 요약]"으로 시작하면 방금 압축한 것
     if len(messages) >= 2:
         second_msg = messages[1]
-        if isinstance(second_msg, HumanMessage) and hasattr(second_msg, 'content'):
+        if isinstance(second_msg, HumanMessage) and hasattr(second_msg, "content"):
             if isinstance(second_msg.content, str) and second_msg.content.startswith("[이전 대화 요약]"):
                 print(f"   ⚠️  방금 압축했으므로 스킵 (무한 루프 방지)\n")
                 return messages
@@ -598,8 +590,7 @@ async def compact_messages(
             break
 
     # 정상 대화에서는 항상 HumanMessage 존재 (assert로 명시)
-    assert recent_start_idx is not None, \
-        "정상 대화에서 HumanMessage는 항상 존재합니다 (사용자가 먼저 질문)"
+    assert recent_start_idx is not None, "정상 대화에서 HumanMessage는 항상 존재합니다 (사용자가 먼저 질문)"
 
     recent_messages = messages[recent_start_idx:]
     middle_messages = messages[start_idx:recent_start_idx]
@@ -635,10 +626,7 @@ async def compact_messages(
         model="claude-haiku-4-5",  # 빠르고 저렴한 모델
         temperature=1,  # Extended thinking 사용 시 반드시 1이어야 함
         api_key=os.getenv("ANTHROPIC_API_KEY"),
-        thinking={
-            "type": "enabled",
-            "budget_tokens": 2048  # thinking 토큰 예산
-        }
+        thinking={"type": "enabled", "budget_tokens": 2048},  # thinking 토큰 예산
     )
 
     try:
@@ -646,30 +634,25 @@ async def compact_messages(
         from langchain_core.runnables import RunnableConfig
 
         summary_response = await summary_llm.ainvoke(
-            [HumanMessage(content=summary_prompt)],
-            config=RunnableConfig(callbacks=[])  # 콜백 비활성화
+            [HumanMessage(content=summary_prompt)], config=RunnableConfig(callbacks=[])  # 콜백 비활성화
         )
         summary_content = summary_response.content
 
         # Thinking이 활성화되면 content가 리스트 형태로 반환됨 (text 블록만 추출)
         if isinstance(summary_content, list):
-            text_blocks = [block for block in summary_content if block.get('type') == 'text']
-            summary_text = '\n'.join(block.get('text', '') for block in text_blocks)
+            text_blocks = [block for block in summary_content if block.get("type") == "text"]
+            summary_text = "\n".join(block.get("text", "") for block in text_blocks)
         else:
             summary_text = summary_content
 
         # 요약 메시지 생성 (HumanMessage 사용)
         # 💡 SystemMessage 다음에 HumanMessage가 오는 게 LLM이 학습한 일반적인 패턴
         # 💡 LLM은 이를 "이전 대화 컨텍스트"로 자연스럽게 이해함
-        summary_message = HumanMessage(
-            content=f"[이전 대화 요약]\n\n{summary_text}\n\n[요약 끝 - 최근 대화 계속]"
-        )
+        summary_message = HumanMessage(content=f"[이전 대화 요약]\n\n{summary_text}\n\n[요약 끝 - 최근 대화 계속]")
 
     except Exception as e:
         # 요약 실패 시 폴백: 단순 메시지
-        summary_message = HumanMessage(
-            content=f"[이전 대화 요약 실패: {len(middle_messages)}개 메시지 생략]"
-        )
+        summary_message = HumanMessage(content=f"[이전 대화 요약 실패: {len(middle_messages)}개 메시지 생략]")
         print(f"\n⚠️  요약 생성 실패: {e}\n")
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -691,17 +674,17 @@ async def compact_messages(
 
     # Thinking 없는 AIMessage 수정 (thinking 활성화 시 필수)
     for i, msg in enumerate(recent_messages):
-        if isinstance(msg, AIMessage) and hasattr(msg, 'content'):
+        if isinstance(msg, AIMessage) and hasattr(msg, "content"):
             if isinstance(msg.content, list) and len(msg.content) > 0:
                 # 첫 번째 블록이 thinking이 아니면 수정
-                first_block_type = msg.content[0].get('type')
-                if first_block_type not in ['thinking', 'redacted_thinking']:
+                first_block_type = msg.content[0].get("type")
+                if first_block_type not in ["thinking", "redacted_thinking"]:
                     # Thinking 블록이 없는 AIMessage는 content를 문자열로 변환
-                    text_blocks = [block.get('text', '') for block in msg.content if block.get('type') == 'text']
+                    text_blocks = [block.get("text", "") for block in msg.content if block.get("type") == "text"]
                     if text_blocks:
                         # 새로운 AIMessage 생성 (tool_calls 유지)
-                        new_msg = AIMessage(content=' '.join(text_blocks))
-                        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        new_msg = AIMessage(content=" ".join(text_blocks))
+                        if hasattr(msg, "tool_calls") and msg.tool_calls:
                             new_msg.tool_calls = msg.tool_calls
                         recent_messages[i] = new_msg
 
@@ -711,7 +694,9 @@ async def compact_messages(
     compressed_actual = compressed[1:] if system_msg else compressed
     compressed_tokens = _count_tokens(compressed_actual)
 
-    print(f"✅ 압축 완료: {len(messages)}개 → {len(compressed)}개 메시지, {token_count:,} → {compressed_tokens:,} tokens\n")
+    print(
+        f"✅ 압축 완료: {len(messages)}개 → {len(compressed)}개 메시지, {token_count:,} → {compressed_tokens:,} tokens\n"
+    )
 
     # 압축 후에도 토큰 수가 여전히 많으면 경고
     if compressed_tokens > max_tokens:
@@ -855,7 +840,9 @@ async def execute_subagent(
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     # Subagent용 system prompt: 제외된 도구 명시
-    subagent_system_prompt = system_prompt + f"""
+    subagent_system_prompt = (
+        system_prompt
+        + f"""
 
 # Subagent Restrictions
 
@@ -868,6 +855,7 @@ async def execute_subagent(
 
 제한된 도구의 기능이 필요한 경우, 사용 가능한 도구로 작업을 완료하고 결과를 main agent에게 반환하세요.
 """
+    )
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Step 4: Subagent용 StateGraph 생성
@@ -893,10 +881,7 @@ async def execute_subagent(
             temperature=1,  # thinking 사용 시 1로 고정
             api_key=os.getenv("ANTHROPIC_API_KEY"),
             # Extended thinking 활성화
-            thinking={
-                "type": "enabled",
-                "budget_tokens": 2048
-            }
+            thinking={"type": "enabled", "budget_tokens": 2048},
         )
         llm_with_tools = llm.bind_tools(allowed_tools)  # 필터링된 도구만!
 
@@ -936,12 +921,7 @@ async def execute_subagent(
     # 엣지 추가
     builder.add_edge(START, "agent")  # 시작 → agent
     builder.add_conditional_edges(
-        "agent",
-        subagent_should_continue,
-        {
-            "tools": "tools",  # 도구 호출 → tools 노드
-            END: END           # 종료 → END
-        }
+        "agent", subagent_should_continue, {"tools": "tools", END: END}  # 도구 호출 → tools 노드  # 종료 → END
     )
     builder.add_edge("tools", "agent")  # tools → agent (루프)
 
