@@ -193,7 +193,7 @@ async def execute_tools(state: AgentState) -> dict:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-def create_graph(use_memory: bool = False):
+def create_graph(use_memory: bool = True):
     """
     🏗️ LangGraph StateGraph 생성 및 구성
 

@@ -27,7 +27,7 @@ from typing import Literal
 
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langgraph.graph import END
 
 from .tools import TOOLS
@@ -73,7 +73,8 @@ def get_system_prompt(working_dir: str = None) -> str:
     today = datetime.now().strftime("%Y-%m-%d")
 
     # 프롬프트 생성
-    return f"""You are a coding assistant powered by LangGraph.
+    return f"""당신은 LangGraph 기반 Claude 코딩 어시스턴트입니다.
+당신은 대화형 CLI 도구로서 사용자의 소프트웨어 엔지니어링 작업을 지원합니다. 아래 지침과 사용 가능한 도구를 활용하여 사용자를 지원하세요.
 
 <env>
 Working directory: {working_dir}
@@ -83,18 +84,32 @@ OS Version: {os_version}
 Today's date: {today}
 </env>
 
-# Tools
+# Available Tools
 
 다음 도구에 접근할 수 있습니다:
-- read_file: 줄 번호와 함께 파일 읽기
-- write_file: 파일 생성 또는 덮어쓰기
-- edit_file: 정확한 문자열 치환으로 파일 편집
-- glob_files: glob 패턴으로 파일 찾기 (예: "**/*.ts")
+File Operations:
+- read_file, write_file, edit_file
+
+Search and Discovery:
+- glob_files: 파일명 패턴으로 파일 찾기
 - grep_code: 정규식으로 코드 검색
-- run_bash: bash 명령어 실행
-- todo_write: 진행 상황 추적을 위한 작업 목록 생성 및 관리
+
+Execution:
+- run_bash: bash 명령어 실행 (터미널 작업 전용)
+
+Task Management:
+- todo_write: 작업 목록 생성 및 관리
 - exit_plan_mode: 구현 계획 제시 및 계획 단계 종료
-- task_tool: 복잡한 작업을 위한 전문 subagent 실행
+
+Agents:
+- task_tool: 전문 subagent 실행 (Explore/Plan/General)
+
+# Tool usage policy
+
+1. Read before Edit: edit_file 전에 **항상** read_file 사용
+2. Absolute Paths: **항상** 절대 파일 경로 사용
+3. Safety: 위험한 작업은 사용자와 확인
+4. Explanations: 작업에 대한 간단한 설명 제공
 
 # Task Management
 
@@ -110,7 +125,7 @@ Examples:
 user: 빌드를 실행하고 타입 오류를 수정해 주세요
 assistant: TodoWrite 도구를 사용하여 다음 항목을 할 일 목록에 작성하겠습니다:
 - 빌드 실행
-- 타입 오류 수정
+- 모든 타입 오류 수정
 
 이제 Bash를 사용하여 빌드를 실행하겠습니다.
 
@@ -125,17 +140,43 @@ assistant: TodoWrite 도구를 사용하여 다음 항목을 할 일 목록에 �
 ..
 </example>
 
-# Tool usage policy
+# Tool Usage Policy
 
-- 파일 검색 시 컨텍스트 사용을 줄이기 위해 Task 도구 사용을 선호하세요.
-- 작업이 agent 설명과 일치하는 경우 전문 agent와 함께 Task 도구를 적극적으로 사용해야 합니다.
-- 한 응답에서 여러 도구를 호출할 수 있습니다. 여러 도구를 호출하려고 하고 도구 간에 종속성이 없는 경우, 모든 독립적인 도구 호출을 병렬로 수행하세요. 효율성을 높이기 위해 가능한 한 병렬 도구 호출을 최대화하세요. 그러나 일부 도구 호출이 종속 값을 알려주기 위해 이전 호출에 의존하는 경우, 이러한 도구를 병렬로 호출하지 **말고** 순차적으로 호출하세요.
-- 가능한 경우 bash 명령어 대신 전문 도구를 사용하세요. 파일 작업의 경우 전용 도구를 사용하세요: cat/head/tail 대신 read_file로 파일 읽기, sed/awk 대신 edit_file로 편집, cat heredoc이나 echo redirection 대신 write_file로 파일 생성.
+한 응답에서 여러 도구를 호출할 수 있습니다. 여러 도구를 호출하려고 하고 도구 간에 종속성이 없는 경우, 모든 독립적인 도구 호출을 병렬로 수행하세요. 효율성을 높이기 위해 가능한 한 병렬 도구 호출을 최대화하세요.
+
+가능한 경우 bash 명령 대신 전문 도구를 사용하세요. 파일 작업의 경우 전용 도구를 사용하세요:
+  - cat/head/tail 대신 read_file로 파일 읽기
+  - sed/awk 대신 edit_file로 편집
+  - cat heredoc이나 echo redirection 대신 write_file로 파일 생성
+
+bash 도구는 셸 실행이 필요한 실제 시스템 명령 및 터미널 작업에만 사용하세요 (git, npm, docker 등).
+
+파일 작업에 bash를 **절대** 사용하지 마세요:
+- Incorrect usage:
+```
+run_bash("cat file.txt")        # Use read_file instead
+run_bash("find . -name '*.py'") # Use glob_files instead
+run_bash("grep pattern file")   # Use grep_code instead
+```
+
+- Correct usage:
+```
+read_file("file.txt")
+glob_files("**/*.py")
+grep_code("pattern", path="file")
+```
+
+Task Tool for Exploration:
 - **매우 중요**: 코드베이스를 탐색하여 컨텍스트를 수집하거나 특정 파일/클래스/함수에 대한 정확한 쿼리가 아닌 질문에 답변할 때, 검색 명령어를 직접 실행하는 대신 subagent_type=Explore와 함께 Task 도구를 사용하는 것이 **중요**합니다.
 
 <example>
 user: 클라이언트 오류는 어디서 처리되나요?
 assistant: [Glob이나 Grep을 직접 사용하는 대신 subagent_type=Explore와 함께 Task 도구를 사용하여 클라이언트 오류를 처리하는 파일을 찾습니다]
+</example>
+
+<example>
+user: 코드베이스 구조가 어떻게 되나요?
+assistant: [subagent_type=Explore와 함께 Task 도구를 사용합니다]
 </example>
 
 # Code References
@@ -146,13 +187,6 @@ assistant: [Glob이나 Grep을 직접 사용하는 대신 subagent_type=Explore�
 user: 클라이언트 오류는 어디서 처리되나요?
 assistant: 클라이언트는 src/services/process.ts:712의 `connectToServer` 함수에서 실패로 표시됩니다.
 </example>
-
-# Guidelines
-
-1. Read before Edit: edit_file 전에 **항상** read_file 사용
-2. Absolute Paths: **항상** 절대 파일 경로 사용
-3. Safety: 위험한 작업은 사용자와 확인
-4. Explanations: 작업에 대한 간단한 설명 제공
 
 이제 사용자의 요청을 도와주세요."""
 
@@ -281,7 +315,35 @@ async def call_agent(state: AgentState) -> dict:
     was_compressed = len(messages) < original_message_count
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 3: LLM 호출
+    # Step 3: 메시지 구조 검증 (Anthropic API 요구사항)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # Anthropic API 요구사항: tool_use 뒤에는 반드시 tool_result가 와야 함
+    # 검증 로직 추가
+    for i, msg in enumerate(messages):
+        if isinstance(msg, AIMessage) and hasattr(msg, "tool_calls") and msg.tool_calls:
+            # 다음 메시지가 있는지 확인
+            if i + 1 < len(messages):
+                next_msg = messages[i + 1]
+                # 다음 메시지가 ToolMessage가 아니면 에러!
+                if not isinstance(next_msg, ToolMessage):
+                    print(f"\n❌ 메시지 구조 오류 발견!")
+                    print(f"   Index {i}: AIMessage with tool_calls")
+                    print(f"   Tool calls: {[tc.get('name') for tc in msg.tool_calls]}")
+                    print(f"   Index {i+1}: {type(next_msg).__name__} (should be ToolMessage!)")
+                    print(f"\n전체 메시지 구조:")
+                    for idx, m in enumerate(messages):
+                        msg_type = type(m).__name__
+                        has_tools = "(with tool_calls)" if isinstance(m, AIMessage) and hasattr(m, "tool_calls") and m.tool_calls else ""
+                        print(f"   [{idx}] {msg_type} {has_tools}")
+
+                    # 잘못된 메시지 제거 (임시 해결)
+                    print(f"\n🔧 임시 수정: tool_calls가 있는 AIMessage를 제거합니다")
+                    messages = messages[:i] + messages[i+1:]
+                    break
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Step 4: LLM 호출
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     # 🤖 LLM 호출! (async로 변경)
@@ -682,10 +744,11 @@ async def compact_messages(messages: list, max_tokens: int = 100_000) -> list:  
                     # Thinking 블록이 없는 AIMessage는 content를 문자열로 변환
                     text_blocks = [block.get("text", "") for block in msg.content if block.get("type") == "text"]
                     if text_blocks:
-                        # 새로운 AIMessage 생성 (tool_calls 유지)
-                        new_msg = AIMessage(content=" ".join(text_blocks))
-                        if hasattr(msg, "tool_calls") and msg.tool_calls:
-                            new_msg.tool_calls = msg.tool_calls
+                        # 새로운 AIMessage 생성 (tool_calls를 생성자에 전달)
+                        new_msg = AIMessage(
+                            content=" ".join(text_blocks),
+                            tool_calls=msg.tool_calls if hasattr(msg, "tool_calls") and msg.tool_calls else None
+                        )
                         recent_messages[i] = new_msg
 
     compressed.extend(recent_messages)

@@ -41,7 +41,7 @@ from langchain_core.tools import tool
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@tool
+@tool(parse_docstring=True)
 def read_file(file_path: str, offset: Optional[int] = None, limit: Optional[int] = None) -> str:
     """Reads a file from the local filesystem. You can access any file directly by using this tool.
 
@@ -87,7 +87,7 @@ def read_file(file_path: str, offset: Optional[int] = None, limit: Optional[int]
     return "\n".join(result)
 
 
-@tool
+@tool(parse_docstring=True)
 def write_file(file_path: str, content: str) -> str:
     """Writes a file to the local filesystem.
 
@@ -115,7 +115,7 @@ def write_file(file_path: str, content: str) -> str:
     return f"File written successfully: {file_path} ({len(content)} bytes)"
 
 
-@tool
+@tool(parse_docstring=True)
 def edit_file(file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
     """Performs exact string replacements in files.
 
@@ -169,7 +169,7 @@ def edit_file(file_path: str, old_string: str, new_string: str, replace_all: boo
 # ============================================================================
 
 
-@tool
+@tool(parse_docstring=True)
 def glob_files(pattern: str, path: Optional[str] = None) -> str:
     """Fast file pattern matching tool that works with any codebase size.
 
@@ -197,7 +197,7 @@ def glob_files(pattern: str, path: Optional[str] = None) -> str:
     return "\n".join(matches)
 
 
-@tool
+@tool(parse_docstring=True)
 def grep_code(
     pattern: str, path: Optional[str] = None, glob: Optional[str] = None, case_insensitive: bool = False
 ) -> str:
@@ -263,7 +263,7 @@ def grep_code(
 # ============================================================================
 
 
-@tool
+@tool(parse_docstring=True)
 def run_bash(command: str, timeout: int = 30) -> str:
     """Executes a given bash command in a persistent shell session with optional timeout.
 
@@ -321,7 +321,7 @@ def run_bash(command: str, timeout: int = 30) -> str:
 # ============================================================================
 
 
-@tool
+@tool(parse_docstring=True)
 def todo_write(todos: list[dict]) -> str:
     """Use this tool to create and manage a structured task list for your current coding session.
 
@@ -387,7 +387,7 @@ def todo_write(todos: list[dict]) -> str:
 # ============================================================================
 
 
-@tool
+@tool(parse_docstring=True)
 def exit_plan_mode(plan: str) -> str:
     """Use this tool when you are in plan mode and have finished presenting your plan and are ready to code.
 
@@ -415,8 +415,8 @@ def exit_plan_mode(plan: str) -> str:
 # ============================================================================
 
 
-@tool
-def task_tool(subagent_type: str, description: str, prompt: str, model: str = "sonnet") -> str:
+@tool(parse_docstring=True)
+def task_tool(subagent_type: str, description: str, prompt: str, model: str = "haiku") -> str:
     """
     Launch a subagent to handle complex tasks.
 
