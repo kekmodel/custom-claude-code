@@ -199,63 +199,154 @@ def glob_files(pattern: str, path: Optional[str] = None) -> str:
 
 @tool(parse_docstring=True)
 def grep_code(
-    pattern: str, path: Optional[str] = None, glob: Optional[str] = None, case_insensitive: bool = False
+    pattern: str,
+    path: Optional[str] = None,
+    glob: Optional[str] = None,
+    output_mode: str = "files_with_matches",
+    type: Optional[str] = None,
+    i: bool = False,
+    n: bool = True,
+    A: Optional[int] = None,
+    B: Optional[int] = None,
+    C: Optional[int] = None,
+    head_limit: Optional[int] = None,
+    offset: int = 0,
+    multiline: bool = False,
 ) -> str:
     """A powerful search tool built on ripgrep.
 
     Usage:
     - ALWAYS use grep_code for search tasks. NEVER invoke `grep` or `rg` as a Bash command.
     - Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
-    - Filter files with glob parameter (e.g., "*.js", "**/*.tsx")
-    - Returns list of files containing matches by default
-    - You can call multiple tools in a single response. It is always better to speculatively perform multiple searches in parallel if they are potentially useful.
+    - Filter files with glob parameter (e.g., "*.js", "**/*.tsx") or type parameter (e.g., "js", "py", "rust")
+    - Output modes: "content" shows matching lines, "files_with_matches" shows only file paths, "count" shows match counts
+    - Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping
+    - Multiline matching: By default patterns match within single lines only. For cross-line patterns, use multiline=True
 
     Args:
         pattern: The regular expression pattern to search for in file contents
         path: File or directory to search in (defaults to current working directory)
         glob: Glob pattern to filter files (e.g., "*.py", "*.{ts,tsx}")
-        case_insensitive: Case insensitive search (default: False)
+        output_mode: Output mode - "content" shows lines, "files_with_matches" shows paths (default), "count" shows counts
+        type: File type to search (e.g., "js", "py", "rust", "go", "java")
+        i: Case insensitive search (rg -i)
+        n: Show line numbers in output (rg -n). Defaults to true. Only applies to "content" mode.
+        A: Number of lines to show after each match (rg -A). Only applies to "content" mode.
+        B: Number of lines to show before each match (rg -B). Only applies to "content" mode.
+        C: Number of lines to show before and after each match (rg -C). Only applies to "content" mode.
+        head_limit: Limit output to first N lines/entries
+        offset: Skip first N lines/entries before applying head_limit
+        multiline: Enable multiline mode where . matches newlines (rg -U --multiline-dotall)
 
     Returns:
-        List of files containing the pattern
+        Search results based on output_mode
     """
     search_path = path or os.getcwd()
 
-    # Use ripgrep if available, otherwise Python fallback
+    # Use ripgrep if available
     try:
-        cmd = ["rg", "--files-with-matches", pattern]
-        if case_insensitive:
+        cmd = ["rg"]
+
+        # Output mode
+        if output_mode == "files_with_matches":
+            cmd.append("--files-with-matches")
+        elif output_mode == "count":
+            cmd.append("--count")
+        # content mode는 기본 동작
+
+        # Case insensitive
+        if i:
             cmd.append("-i")
+
+        # Line numbers (only for content mode)
+        if output_mode == "content" and n:
+            cmd.append("-n")
+
+        # Context lines (only for content mode)
+        if output_mode == "content":
+            if C is not None:
+                cmd.extend(["-C", str(C)])
+            else:
+                if A is not None:
+                    cmd.extend(["-A", str(A)])
+                if B is not None:
+                    cmd.extend(["-B", str(B)])
+
+        # File type
+        if type:
+            cmd.extend(["--type", type])
+
+        # Glob pattern
         if glob:
             cmd.extend(["--glob", glob])
+
+        # Multiline mode
+        if multiline:
+            cmd.extend(["-U", "--multiline-dotall"])
+
+        # Pattern and path
+        cmd.append(pattern)
         cmd.append(search_path)
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        return result.stdout if result.stdout else "No matches found"
+        output = result.stdout if result.stdout else "No matches found"
 
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        # Fallback to basic Python implementation
+        # Apply offset and head_limit
+        if output != "No matches found" and (offset > 0 or head_limit is not None):
+            lines = output.splitlines()
+            start = offset
+            end = (start + head_limit) if head_limit else len(lines)
+            output = "\n".join(lines[start:end])
+
+        return output
+
+    except FileNotFoundError:
+        # Fallback to basic Python implementation (simplified - only supports basic features)
         import re
 
-        flags = re.IGNORECASE if case_insensitive else 0
+        flags = re.IGNORECASE if i else 0
+        if multiline:
+            flags |= re.DOTALL
         regex = re.compile(pattern, flags)
 
         matches = []
         for root, _, files in os.walk(search_path):
             for file in files:
-                # glob 패턴이 지정되었으면 파일명 필터링
-                # fnmatch: 파일명 패턴 매칭 (예: "*.py", "test_*.js")
                 if glob and not fnmatch.fnmatch(file, glob):
                     continue
                 file_path = os.path.join(root, file)
                 try:
                     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        if regex.search(f.read()):
-                            matches.append(file_path)
+                        content = f.read()
+                        if regex.search(content):
+                            if output_mode == "files_with_matches":
+                                matches.append(file_path)
+                            elif output_mode == "content":
+                                for line_num, line in enumerate(content.splitlines(), 1):
+                                    if regex.search(line):
+                                        if n:
+                                            matches.append(f"{file_path}:{line_num}:{line}")
+                                        else:
+                                            matches.append(f"{file_path}:{line}")
+                            elif output_mode == "count":
+                                count = len(regex.findall(content))
+                                matches.append(f"{file_path}:{count}")
                 except Exception:
                     continue
 
-        return "\n".join(matches) if matches else "No matches found"
+        if not matches:
+            return "No matches found"
+
+        # Apply offset and head_limit
+        if offset > 0 or head_limit is not None:
+            start = offset
+            end = (start + head_limit) if head_limit else len(matches)
+            matches = matches[start:end]
+
+        return "\n".join(matches)
+
+    except subprocess.TimeoutExpired:
+        raise TimeoutError(f"Search timed out after 30s")
 
 
 # ============================================================================
@@ -264,20 +355,25 @@ def grep_code(
 
 
 @tool(parse_docstring=True)
-def run_bash(command: str, timeout: int = 30) -> str:
+def run_bash(command: str, timeout: Optional[int] = None) -> str:
     """Executes a given bash command in a persistent shell session with optional timeout.
 
     IMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.
 
-    Usage notes:
+    Before executing the command:
+    - If the command will create new directories or files, first use `ls` to verify the parent directory exists
     - Always quote file paths that contain spaces with double quotes (e.g., cd "path with spaces/file.txt")
-    - You can specify an optional timeout in seconds (default: 30s)
+
+    Usage notes:
+    - The command argument is required
+    - You can specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). If not specified, commands will timeout after 120000ms (2 minutes)
     - Avoid using Bash with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands. Instead, always prefer using the dedicated tools:
       - File search: Use glob_files (NOT find or ls)
       - Content search: Use grep_code (NOT grep or rg)
       - Read files: Use read_file (NOT cat/head/tail)
       - Edit files: Use edit_file (NOT sed/awk)
       - Write files: Use write_file (NOT echo >/cat <<EOF)
+      - Communication: Output text directly (NOT echo/printf)
 
     When issuing multiple commands:
     - If the commands are independent and can run in parallel, make multiple run_bash tool calls in a single response
@@ -288,19 +384,24 @@ def run_bash(command: str, timeout: int = 30) -> str:
     Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`.
 
     Args:
-        command: Bash command to execute
-        timeout: Timeout in seconds (default: 30)
+        command: The command to execute
+        timeout: Optional timeout in milliseconds (max 600000). Defaults to 120000ms (2 minutes)
 
     Returns:
         Command output (stdout + stderr)
     """
+    # Convert milliseconds to seconds, with defaults
+    timeout_seconds = (timeout / 1000) if timeout else 120
+
     # Safety check
     dangerous_commands = ["rm -rf", "mkfs", "dd if=", ":(){ :|:& };:"]
     if any(danger in command for danger in dangerous_commands):
         raise ValueError(f"Dangerous command blocked: {command}")
 
     try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout, cwd=os.getcwd())
+        result = subprocess.run(
+            command, shell=True, capture_output=True, text=True, timeout=timeout_seconds, cwd=os.getcwd()
+        )
 
         output = []
         if result.stdout:
@@ -313,7 +414,7 @@ def run_bash(command: str, timeout: int = 30) -> str:
         return "\n".join(output) if output else "(no output)"
 
     except subprocess.TimeoutExpired:
-        raise TimeoutError(f"Command timed out after {timeout}s: {command}")
+        raise TimeoutError(f"Command timed out after {timeout_seconds}s: {command}")
 
 
 # ============================================================================
@@ -416,15 +517,45 @@ def exit_plan_mode(plan: str) -> str:
 
 
 @tool(parse_docstring=True)
-def task_tool(subagent_type: str, description: str, prompt: str, model: str = "haiku") -> str:
-    """
-    Launch a subagent to handle complex tasks.
+def task_tool(
+    description: str,
+    prompt: str,
+    subagent_type: str,
+    model: Optional[str] = None,
+    resume: Optional[str] = None,
+) -> str:
+    """Launch a new agent to handle complex, multi-step tasks autonomously.
+
+    The Task tool launches specialized agents (subprocesses) that autonomously handle complex tasks.
+    Each agent type has specific capabilities and tools available to it.
+
+    Available agent types and the tools they have access to:
+    - general-purpose: General-purpose agent for researching complex questions, searching for code,
+      and executing multi-step tasks. When you are searching for a keyword or file and are not
+      confident that you will find the right match in the first few tries use this agent to
+      perform the search for you. (Tools: *)
+    - Explore: Fast agent specialized for exploring codebases. Use this when you need to quickly
+      find files by patterns, search code for keywords, or answer questions about the codebase.
+      When calling this agent, specify the desired thoroughness level: "quick" for basic searches,
+      "medium" for moderate exploration, or "very thorough" for comprehensive analysis. (Tools: All tools)
+    - Plan: Fast agent specialized for planning implementation steps. Use this when you need to
+      create a structured plan for implementing features, fixing bugs, or refactoring code.
+      When calling this agent, specify the desired thoroughness level: "quick" for basic plans,
+      "medium" for detailed analysis, or "very thorough" for comprehensive planning. (Tools: All tools)
+
+    Usage notes:
+    - Launch multiple agents concurrently whenever possible, to maximize performance
+    - When the agent is done, it will return a single message back to you
+    - Each agent invocation is stateless. You will not be able to send additional messages to the agent
+    - The agent's outputs should generally be trusted
+    - Clearly tell the agent whether you expect it to write code or just to do research
 
     Args:
-        subagent_type: Type of agent (general-purpose, Explore, Plan)
-        description: Short 3-5 word description
-        prompt: Detailed instructions for the subagent
-        model: Model to use (sonnet, opus, haiku)
+        description: A short (3-5 word) description of the task
+        prompt: The task for the agent to perform
+        subagent_type: The type of specialized agent to use (general-purpose, Explore, Plan)
+        model: Optional model to use for this agent (sonnet, opus, haiku). If not specified, inherits from parent. Prefer haiku for quick, straightforward tasks to minimize cost and latency.
+        resume: Optional agent ID to resume from. If provided, the agent will continue from the previous execution transcript.
 
     Returns:
         Subagent report

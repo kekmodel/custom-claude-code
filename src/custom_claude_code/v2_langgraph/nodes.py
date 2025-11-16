@@ -823,13 +823,13 @@ async def execute_subagent(
       "medium" for moderate exploration, or "very thorough" for comprehensive
       analysis across multiple locations and naming conventions. (Tools: All tools)
 
-    - "Plan": Fast agent specialized for exploring codebases. Use this when you
-      need to quickly find files by patterns (eg. "src/components/**/*.tsx"),
-      search code for keywords (eg. "API endpoints"), or answer questions about
-      the codebase (eg. "how do API endpoints work?"). When calling this agent,
-      specify the desired thoroughness level: "quick" for basic searches,
-      "medium" for moderate exploration, or "very thorough" for comprehensive
-      analysis across multiple locations and naming conventions. (Tools: All tools)
+    - "Plan": Fast agent specialized for planning implementation steps. Use this
+      when you need to create a structured plan for implementing features, fixing
+      bugs, or refactoring code. The agent will explore the codebase to understand
+      the architecture, design a step-by-step implementation plan, and present it
+      for approval via ExitPlanMode. Specify thoroughness level: "quick" for basic
+      plans, "medium" for detailed analysis, or "very thorough" for comprehensive
+      planning across multiple components. (Tools: All tools)
 
     📌 공통 도구 제한:
     모든 Subagent는 다음 도구를 사용할 수 없습니다:
@@ -892,29 +892,76 @@ async def execute_subagent(
     # Subagent는 특정 도구를 사용할 수 없음 (무한 재귀 방지 및 역할 분리)
     excluded_tools = {"task_tool", "todo_write", "exit_plan_mode"}
 
-    # 모든 Subagent 타입: 제외 도구를 제외한 나머지 허용
-    # - "general-purpose": 복잡한 리서치, 코드 검색, 멀티스텝 실행
-    # - "Explore": 빠른 코드베이스 탐색 (패턴, 키워드, 질문 답변)
-    # - "Plan": 구현 계획 수립
+    # 기본: 제외 도구를 제외한 나머지 허용
     allowed_tools = [t for t in TOOLS if t.name not in excluded_tools]
 
+    # Subagent 타입별 추가 제한
+    if subagent_type == "Explore":
+        # 탐색 전용: 쓰기 도구 제외 (읽기 전용)
+        write_tools = {"write_file", "edit_file"}
+        allowed_tools = [t for t in allowed_tools if t.name not in write_tools]
+
+    elif subagent_type == "Plan":
+        # 계획 전용: 읽기 도구만 허용
+        read_only_tools = {"read_file", "grep_code", "glob_files", "run_bash"}
+        allowed_tools = [t for t in allowed_tools if t.name in read_only_tools]
+
+    # "general-purpose"는 모든 허용 도구 사용 가능 (제외 도구만 빼고)
+
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Step 3: Subagent용 system prompt 수정 (제외된 도구 명시)
+    # Step 3: Subagent용 system prompt 수정 (타입별 역할 및 제한 명시)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    # Subagent용 system prompt: 제외된 도구 명시
+    # Subagent 타입별 역할 설명
+    role_descriptions = {
+        "Explore": """당신은 코드베이스 탐색 전문 Explore agent입니다.
+주요 역할:
+- 파일 패턴으로 빠르게 파일 찾기
+- 키워드로 코드 검색
+- 코드베이스에 대한 질문 답변
+- 아키텍처 이해 및 분석
+
+제한사항:
+- 읽기 전용: 파일을 수정하거나 생성할 수 없습니다
+- 탐색과 분석에만 집중하세요""",
+
+        "Plan": """당신은 구현 계획 수립 전문 Plan agent입니다.
+주요 역할:
+- 기능 구현을 위한 단계별 계획 수립
+- 버그 수정 계획 작성
+- 리팩토링 전략 수립
+- 코드베이스 분석을 통한 영향도 파악
+
+제한사항:
+- 읽기 전용: 파일을 수정하거나 생성할 수 없습니다
+- 계획 수립과 분석에만 집중하세요""",
+
+        "general-purpose": """당신은 복잡한 멀티스텝 작업을 처리하는 General-purpose agent입니다.
+주요 역할:
+- 복잡한 리서치 수행
+- 코드 검색 및 분석
+- 필요시 파일 수정 및 생성
+- 멀티스텝 작업 실행"""
+    }
+
+    # Subagent용 system prompt
     subagent_system_prompt = (
         system_prompt
         + f"""
 
-# Subagent Restrictions
+# Subagent Role and Restrictions
 
-당신은 제한된 도구 접근 권한을 가진 subagent입니다. 다음 도구에는 접근할 수 **없습니다**:
+{role_descriptions.get(subagent_type, role_descriptions["general-purpose"])}
+
+## Tool Access
+
+사용 가능한 도구: {', '.join(t.name for t in allowed_tools)}
+
+다음 도구는 접근할 수 **없습니다**:
 - task_tool: 다른 subagent를 실행할 수 없습니다 (무한 재귀 방지)
 - todo_write: 작업 추적은 main agent에서만 관리됩니다
 - exit_plan_mode: 계획은 main agent에서만 처리됩니다
-
-사용 가능한 도구: {', '.join(t.name for t in allowed_tools)}
+{"- write_file, edit_file: 읽기 전용 agent입니다" if subagent_type in ["Explore", "Plan"] else ""}
 
 제한된 도구의 기능이 필요한 경우, 사용 가능한 도구로 작업을 완료하고 결과를 main agent에게 반환하세요.
 """
