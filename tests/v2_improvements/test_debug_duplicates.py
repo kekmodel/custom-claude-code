@@ -10,7 +10,7 @@ import os
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 
-from src.custom_claude_code.v2_langgraph.main import process_graph_stream
+from custom_claude_code.v2_langgraph.main import process_graph_stream
 
 load_dotenv()
 

@@ -33,6 +33,7 @@ class V2Config:
     SHOW_THINKING: bool = os.getenv("V2_SHOW_THINKING", "true").lower() == "true"
     SHOW_TOOL_RESULTS: bool = os.getenv("V2_SHOW_TOOL_RESULTS", "true").lower() == "true"
     TOOL_RESULT_MAX_LENGTH: int = int(os.getenv("V2_TOOL_RESULT_MAX", "500"))
+    DEBUG: bool = os.getenv("V2_DEBUG", "false").lower() == "true"
 
     @classmethod
     def get_model_config(cls) -> dict:
@@ -75,6 +76,7 @@ v2 LangGraph 설정:
   Show Thinking: {cls.SHOW_THINKING}
   Show Tool Results: {cls.SHOW_TOOL_RESULTS}
   Tool Result Max Length: {cls.TOOL_RESULT_MAX_LENGTH}
+  Debug Mode: {cls.DEBUG}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         """.strip()
 

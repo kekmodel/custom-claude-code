@@ -61,11 +61,15 @@ async def execute_tools(state: AgentState) -> dict:
                 else:
                     result = tool.invoke(tool_args)
 
-            tool_messages.append(ToolMessage(content=str(result), tool_call_id=tool_call_id))
+            tool_messages.append(
+                ToolMessage(content=str(result), tool_call_id=tool_call_id, name=tool_name)
+            )
 
         except Exception as e:
             tool_messages.append(
-                ToolMessage(content=f"[ERROR] {type(e).__name__}: {str(e)}", tool_call_id=tool_call_id)
+                ToolMessage(
+                    content=f"[ERROR] {type(e).__name__}: {str(e)}", tool_call_id=tool_call_id, name=tool_name
+                )
             )
 
     result_dict = {"messages": tool_messages}

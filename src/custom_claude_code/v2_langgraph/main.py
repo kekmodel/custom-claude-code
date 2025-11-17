@@ -15,7 +15,10 @@ from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.spinner import Spinner
+from rich.text import Text
 
+from .config import V2Config
 from .graph import graph
 
 load_dotenv()
@@ -34,6 +37,7 @@ class LivePanelManager:
     def __init__(self):
         self.thinking_live = None
         self.content_live = None
+        self.spinner_live = None
         self.current_thinking = ""
         self.current_content = ""
 
@@ -68,6 +72,35 @@ class LivePanelManager:
         else:
             self.content_live.update(panel)
 
+    def show_spinner(self, message: str, subagent_type: str = "general"):
+        """Spinner 표시 (task_tool 실행 중)"""
+        # 기존 패널들 닫기
+        self.close_all()
+
+        # Subagent 타입별 이모지
+        emoji_map = {
+            "Explore": "🔍",
+            "Plan": "📋",
+            "general-purpose": "⚙️",
+            "statusline-setup": "⚙️",
+        }
+        emoji = emoji_map.get(subagent_type, "⚙️")
+
+        spinner = Spinner("dots", text=Text(f"{emoji} {message}", style="cyan"))
+        panel = Panel(spinner, title=f"[bold cyan]{subagent_type} Agent[/bold cyan]", border_style="cyan")
+
+        if self.spinner_live is None:
+            self.spinner_live = Live(panel, console=console, refresh_per_second=10)
+            self.spinner_live.start()
+        else:
+            self.spinner_live.update(panel)
+
+    def hide_spinner(self):
+        """Spinner 숨기기"""
+        if self.spinner_live is not None:
+            self.spinner_live.stop()
+            self.spinner_live = None
+
     def close_all(self):
         """모든 Live 패널 닫기"""
         if self.thinking_live is not None:
@@ -76,6 +109,9 @@ class LivePanelManager:
         if self.content_live is not None:
             self.content_live.stop()
             self.content_live = None
+        if self.spinner_live is not None:
+            self.spinner_live.stop()
+            self.spinner_live = None
 
     def reset(self):
         """상태 초기화"""
@@ -115,21 +151,42 @@ class EventHandler:
         if not chunk or not hasattr(chunk, "content"):
             return
 
-        if not hasattr(chunk, "content_blocks"):
-            return
+        # Extended Thinking 지원 (content_blocks 있을 때)
+        if hasattr(chunk, "content_blocks") and chunk.content_blocks:
+            for block in chunk.content_blocks:
+                block_type = block.get("type")
 
-        for block in chunk.content_blocks:
-            block_type = block.get("type")
+                if block_type == "reasoning":
+                    reasoning = block.get("reasoning", "")
+                    if reasoning:
+                        # Main agent의 thinking일 때만 spinner 종료
+                        if self.task_tool_depth == 0:
+                            self.panel_manager.hide_spinner()
+                        self.panel_manager.update_thinking(reasoning)
 
-            if block_type == "reasoning":
-                reasoning = block.get("reasoning", "")
-                if reasoning:
-                    self.panel_manager.update_thinking(reasoning)
+                elif block_type == "text":
+                    text = block.get("text", "")
+                    if text:
+                        # Main agent의 content일 때만 spinner 종료
+                        if self.task_tool_depth == 0:
+                            self.panel_manager.hide_spinner()
+                        self.panel_manager.update_content(text)
 
-            elif block_type == "text":
-                text = block.get("text", "")
-                if text:
-                    self.panel_manager.update_content(text)
+        # 일반 content 스트리밍 (content_blocks가 없거나 비어있을 때)
+        # elif가 아니라 별도 체크로 변경!
+        if chunk.content and not (hasattr(chunk, "content_blocks") and chunk.content_blocks):
+            # Main agent의 content일 때만 spinner 종료
+            if self.task_tool_depth == 0:
+                self.panel_manager.hide_spinner()
+
+            if isinstance(chunk.content, str):
+                self.panel_manager.update_content(chunk.content)
+            elif isinstance(chunk.content, list):
+                for block in chunk.content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text = block.get("text", "")
+                        if text:
+                            self.panel_manager.update_content(text)
 
     def handle_chat_model_end(self, event: dict):
         """LLM 응답 완료 이벤트"""
@@ -146,27 +203,50 @@ class EventHandler:
 
         # AIMessage 추가 및 도구 호출 표시
         if output and isinstance(output, AIMessage):
-            # 🔍 디버깅: 메시지 추가 로그
-            msg_id = getattr(output, 'id', 'N/A')
-            tool_calls = [tc.get('name') for tc in output.tool_calls] if output.tool_calls else []
+            # 🔧 FIX: depth > 0이면 subagent 내부 메시지 → 무시
+            if self.task_tool_depth > 0:
+                if V2Config.DEBUG:
+                    print(f"\n[DEBUG] ⏭️  Skipping AIMessage (inside subagent, depth={self.task_tool_depth})")
+                self.panel_manager.reset()
+                return
 
-            # content 추출 (list일 수도 있음)
-            content_preview = ""
-            if output.content:
-                if isinstance(output.content, list):
-                    text_blocks = [b.get('text', '') for b in output.content if b.get('type') == 'text']
-                    content_preview = ' '.join(text_blocks)[:100]
-                else:
-                    content_preview = str(output.content)[:100]
+            if V2Config.DEBUG:
+                # 디버깅: 메시지 추가 로그
+                msg_id = getattr(output, 'id', 'N/A')
+                tool_calls = [tc.get('name') for tc in output.tool_calls] if output.tool_calls else []
 
-            print(f"\n[DEBUG] EventHandler.handle_chat_model_end:")
-            print(f"  현재 메시지 수: {len(self.messages)}")
-            print(f"  추가할 AIMessage id: {msg_id}")
-            print(f"  tool_calls: {tool_calls}")
-            print(f"  content: {content_preview}...")
+                # content 추출 (list일 수도 있음)
+                content_preview = ""
+                if output.content:
+                    if isinstance(output.content, list):
+                        text_blocks = [b.get('text', '') for b in output.content if b.get('type') == 'text']
+                        content_preview = ' '.join(text_blocks)[:100]
+                    else:
+                        content_preview = str(output.content)[:100]
+
+                print(f"\n[DEBUG] EventHandler.handle_chat_model_end:")
+                print(f"  현재 메시지 수: {len(self.messages)}")
+                print(f"  추가할 AIMessage id: {msg_id}")
+                print(f"  tool_calls: {tool_calls}")
+                print(f"  content: {content_preview}...")
 
             self.messages.append(output)
             self._display_tool_calls(output.tool_calls)
+
+            # 🔧 FIX: task_tool 호출 감지 → depth 증가 + spinner 표시
+            if output.tool_calls:
+                for tc in output.tool_calls:
+                    if tc.get('name') == 'task_tool':
+                        self.task_tool_depth += 1
+                        if V2Config.DEBUG:
+                            print(f"[DEBUG] 🔽 task_tool detected, depth: {self.task_tool_depth}")
+
+                        # Spinner 표시
+                        args = tc.get('args', {})
+                        subagent_type = args.get('subagent_type', 'general-purpose')
+                        description = args.get('description', 'Processing task...')
+                        self.panel_manager.show_spinner(description, subagent_type)
+                        break
 
         self.panel_manager.reset()
 
@@ -182,19 +262,46 @@ class EventHandler:
             if "messages" in output:
                 for msg in output["messages"]:
                     if isinstance(msg, ToolMessage):
-                        # 🔍 디버깅: ToolMessage 추가 로그
-                        msg_id = getattr(msg, 'id', 'N/A')
                         tool_name = getattr(msg, 'name', 'unknown')
-                        content_preview = str(msg.content)[:100] if msg.content else ""
+                        is_task_tool = (tool_name == 'task_tool')
 
-                        print(f"\n[DEBUG] EventHandler.handle_chain_end:")
-                        print(f"  현재 메시지 수: {len(self.messages)}")
-                        print(f"  추가할 ToolMessage id: {msg_id}")
-                        print(f"  tool_name: {tool_name}")
-                        print(f"  content: {content_preview}...")
+                        # 🔧 FIX: task_tool 완료 → depth 감소 후 메시지 추가
+                        # Spinner는 main agent가 응답 시작할 때 자동으로 종료됨
+                        if is_task_tool and self.task_tool_depth > 0:
+                            self.task_tool_depth -= 1
 
-                        self.messages.append(msg)
-                        self._display_tool_result(msg)
+                            if V2Config.DEBUG:
+                                print(f"\n[DEBUG] 🔼 task_tool completed, depth: {self.task_tool_depth}")
+                                msg_id = getattr(msg, 'id', 'N/A')
+                                content_preview = str(msg.content)[:100] if msg.content else ""
+                                print(f"[DEBUG] EventHandler.handle_chain_end:")
+                                print(f"  현재 메시지 수: {len(self.messages)}")
+                                print(f"  추가할 ToolMessage id: {msg_id}")
+                                print(f"  tool_name: {tool_name}")
+                                print(f"  content: {content_preview}...")
+
+                            self.messages.append(msg)
+                            self._display_tool_result(msg)
+
+                        # 🔧 FIX: subagent 내부의 ToolMessage → 무시
+                        elif self.task_tool_depth > 0:
+                            if V2Config.DEBUG:
+                                print(f"\n[DEBUG] ⏭️  Skipping ToolMessage '{tool_name}' (inside subagent, depth={self.task_tool_depth})")
+                            continue
+
+                        # 일반 ToolMessage → 추가
+                        else:
+                            if V2Config.DEBUG:
+                                msg_id = getattr(msg, 'id', 'N/A')
+                                content_preview = str(msg.content)[:100] if msg.content else ""
+                                print(f"\n[DEBUG] EventHandler.handle_chain_end:")
+                                print(f"  현재 메시지 수: {len(self.messages)}")
+                                print(f"  추가할 ToolMessage id: {msg_id}")
+                                print(f"  tool_name: {tool_name}")
+                                print(f"  content: {content_preview}...")
+
+                            self.messages.append(msg)
+                            self._display_tool_result(msg)
 
             if "todos" in output and output["todos"]:
                 self.todos = output["todos"]
@@ -227,66 +334,68 @@ class EventHandler:
 
     def get_final_messages(self):
         """누적된 최종 메시지 반환"""
-        # 🔍 디버깅: 최종 메시지 구조 출력
-        print(f"\n{'='*80}")
-        print(f"[DEBUG] EventHandler.get_final_messages:")
-        print(f"  총 메시지 수: {len(self.messages)}")
-        print(f"{'='*80}")
+        if V2Config.DEBUG:
+            # 디버깅: 최종 메시지 구조 출력
+            print(f"\n{'='*80}")
+            print(f"[DEBUG] EventHandler.get_final_messages:")
+            print(f"  총 메시지 수: {len(self.messages)}")
+            print(f"{'='*80}")
 
-        for i, msg in enumerate(self.messages):
-            msg_type = type(msg).__name__
-            msg_id = getattr(msg, 'id', 'N/A')[:20] if hasattr(msg, 'id') else 'N/A'
+            for i, msg in enumerate(self.messages):
+                msg_type = type(msg).__name__
+                msg_id = getattr(msg, 'id', 'N/A')[:20] if hasattr(msg, 'id') else 'N/A'
 
-            # content 추출
-            content_preview = ""
-            if hasattr(msg, 'content') and msg.content:
-                if isinstance(msg.content, list):
-                    text_blocks = [b.get('text', '') for b in msg.content if b.get('type') == 'text']
-                    content_preview = ' '.join(text_blocks)[:80]
-                else:
-                    content_preview = str(msg.content)[:80]
+                # content 추출
+                content_preview = ""
+                if hasattr(msg, 'content') and msg.content:
+                    if isinstance(msg.content, list):
+                        text_blocks = [b.get('text', '') for b in msg.content if b.get('type') == 'text']
+                        content_preview = ' '.join(text_blocks)[:80]
+                    else:
+                        content_preview = str(msg.content)[:80]
 
-            if isinstance(msg, AIMessage) and hasattr(msg, "tool_calls") and msg.tool_calls:
-                tool_calls = [tc.get('name') for tc in msg.tool_calls]
-                print(f"  [{i}] {msg_type:15} id=...{msg_id}")
-                print(f"      tool_calls: {tool_calls}")
-                print(f"      content: {content_preview}...")
-            elif isinstance(msg, ToolMessage):
-                tool_name = getattr(msg, 'name', 'unknown')
-                print(f"  [{i}] {msg_type:15} id=...{msg_id} name={tool_name}")
-                print(f"      content: {content_preview}...")
-            else:
-                print(f"  [{i}] {msg_type:15} id=...{msg_id}")
-                if content_preview:
+                if isinstance(msg, AIMessage) and hasattr(msg, "tool_calls") and msg.tool_calls:
+                    tool_calls = [tc.get('name') for tc in msg.tool_calls]
+                    print(f"  [{i}] {msg_type:15} id=...{msg_id}")
+                    print(f"      tool_calls: {tool_calls}")
                     print(f"      content: {content_preview}...")
+                elif isinstance(msg, ToolMessage):
+                    tool_name = getattr(msg, 'name', 'unknown')
+                    print(f"  [{i}] {msg_type:15} id=...{msg_id} name={tool_name}")
+                    print(f"      content: {content_preview}...")
+                else:
+                    print(f"  [{i}] {msg_type:15} id=...{msg_id}")
+                    if content_preview:
+                        print(f"      content: {content_preview}...")
 
-        # 연속 AIMessage 감지
-        print(f"\n🔍 연속 AIMessage 체크:")
-        consecutive_found = False
-        for i in range(len(self.messages) - 1):
-            if isinstance(self.messages[i], AIMessage) and isinstance(self.messages[i + 1], AIMessage):
-                consecutive_found = True
-                msg1_id = getattr(self.messages[i], 'id', 'N/A')
-                msg2_id = getattr(self.messages[i + 1], 'id', 'N/A')
+            # 연속 AIMessage 감지
+            print(f"\n🔍 연속 AIMessage 체크:")
+            consecutive_found = False
+            for i in range(len(self.messages) - 1):
+                if isinstance(self.messages[i], AIMessage) and isinstance(self.messages[i + 1], AIMessage):
+                    consecutive_found = True
+                    msg1_id = getattr(self.messages[i], 'id', 'N/A')
+                    msg2_id = getattr(self.messages[i + 1], 'id', 'N/A')
 
-                # content 비교
-                content1 = self.messages[i].content
-                content2 = self.messages[i + 1].content
-                same_content = (str(content1) == str(content2))
+                    # content 비교
+                    content1 = self.messages[i].content
+                    content2 = self.messages[i + 1].content
+                    same_content = (str(content1) == str(content2))
 
-                tool_calls1 = [tc.get('name') for tc in self.messages[i].tool_calls] if self.messages[i].tool_calls else []
-                tool_calls2 = [tc.get('name') for tc in self.messages[i + 1].tool_calls] if self.messages[i + 1].tool_calls else []
+                    tool_calls1 = [tc.get('name') for tc in self.messages[i].tool_calls] if self.messages[i].tool_calls else []
+                    tool_calls2 = [tc.get('name') for tc in self.messages[i + 1].tool_calls] if self.messages[i + 1].tool_calls else []
 
-                print(f"  ⚠️  [{i}]-[{i+1}] 연속 AIMessage 발견!")
-                print(f"      [{i}] id={msg1_id}, tool_calls={tool_calls1}")
-                print(f"      [{i+1}] id={msg2_id}, tool_calls={tool_calls2}")
-                print(f"      같은 ID: {msg1_id == msg2_id}")
-                print(f"      같은 content: {same_content}")
+                    print(f"  ⚠️  [{i}]-[{i+1}] 연속 AIMessage 발견!")
+                    print(f"      [{i}] id={msg1_id}, tool_calls={tool_calls1}")
+                    print(f"      [{i+1}] id={msg2_id}, tool_calls={tool_calls2}")
+                    print(f"      같은 ID: {msg1_id == msg2_id}")
+                    print(f"      같은 content: {same_content}")
 
-        if not consecutive_found:
-            print(f"  ✅ 연속 AIMessage 없음")
+            if not consecutive_found:
+                print(f"  ✅ 연속 AIMessage 없음")
 
-        print(f"{'='*80}\n")
+            print(f"{'='*80}\n")
+
         return self.messages
 
 

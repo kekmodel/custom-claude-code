@@ -9,7 +9,7 @@ import os
 from typing import Literal
 
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langgraph.graph import END
 
 from .config import V2Config
@@ -69,11 +69,15 @@ async def call_agent(state: AgentState) -> dict:
                         error_msg.append(f"   [{idx}] {msg_type} {has_tools}")
 
                     # 🔍 디버깅: 연속 AIMessage 상세 정보
-                    if idx > 0 and isinstance(messages[idx-1], AIMessage):
+                    if idx > 0 and isinstance(messages[idx - 1], AIMessage):
                         error_msg.append(f"\n🔍 연속 AIMessage 디버깅:")
-                        error_msg.append(f"   [{idx-1}] tool_calls: {[tc.get('name') for tc in messages[idx-1].tool_calls]}")
+                        error_msg.append(
+                            f"   [{idx-1}] tool_calls: {[tc.get('name') for tc in messages[idx-1].tool_calls]}"
+                        )
                         error_msg.append(f"   [{idx-1}] id: {getattr(messages[idx-1], 'id', 'N/A')}")
-                        error_msg.append(f"   [{idx}] tool_calls: {[tc.get('name') for tc in messages[idx].tool_calls]}")
+                        error_msg.append(
+                            f"   [{idx}] tool_calls: {[tc.get('name') for tc in messages[idx].tool_calls]}"
+                        )
                         error_msg.append(f"   [{idx}] id: {getattr(messages[idx], 'id', 'N/A')}")
 
                     raise ValueError("\n".join(error_msg))
@@ -358,7 +362,10 @@ async def execute_subagent(
     }
 
     try:
-        final_state = await subagent_graph.ainvoke(initial_state)
+        # 🔧 FIX: callbacks=[] 로 subagent 이벤트가 main graph로 전파되는 것 방지
+        from langchain_core.runnables import RunnableConfig
+
+        final_state = await subagent_graph.ainvoke(initial_state, config=RunnableConfig(callbacks=[]))
 
         if final_state["messages"]:
             last_msg = final_state["messages"][-1]
