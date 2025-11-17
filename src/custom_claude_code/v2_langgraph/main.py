@@ -6,6 +6,7 @@ v1 대비: 그래프가 도구 루프 자동 처리, 코드 ~50% 감소
 """
 
 import os
+import time
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -41,6 +42,12 @@ class LivePanelManager:
         self.current_thinking = ""
         self.current_content = ""
 
+        # 스트리밍 최적화: 청크 배칭
+        self.pending_content = ""  # 대기 중인 콘텐츠 버퍼
+        self.last_update_time = 0  # 마지막 업데이트 시간
+        self.min_update_interval = 0.15  # 최소 업데이트 간격 (150ms) - Markdown용
+        self.batch_size = 100  # 배치 크기 (문자 수) - 더 큰 배치
+
     def update_thinking(self, text: str):
         """Thinking 패널 업데이트"""
         self.current_thinking += text
@@ -56,29 +63,71 @@ class LivePanelManager:
         else:
             self.thinking_live.update(panel)
 
-    def update_content(self, text: str):
-        """Content 패널 업데이트"""
+    def update_content(self, text: str, force: bool = False):
+        """Content 패널 업데이트 (배칭 최적화)
+
+        Args:
+            text: 추가할 텍스트
+            force: True면 즉시 업데이트 (스트림 종료 시)
+        """
         # Thinking 패널이 있으면 닫기
         if self.thinking_live is not None:
             self.thinking_live.stop()
             self.thinking_live = None
 
-        self.current_content += text
-        panel = Panel(Markdown(self.current_content), title="[bold blue]Assistant[/bold blue]", border_style="blue")
+        # 버퍼에 텍스트 추가
+        self.pending_content += text
 
-        if self.content_live is None:
-            self.content_live = Live(panel, console=console, refresh_per_second=10)
-            self.content_live.start()
-        else:
-            self.content_live.update(panel)
+        current_time = time.time()
+        time_elapsed = current_time - self.last_update_time
+
+        # 업데이트 조건: force OR 충분한 시간 경과 OR 충분한 텍스트 누적
+        should_update = (
+            force or time_elapsed >= self.min_update_interval or len(self.pending_content) >= self.batch_size
+        )
+
+        if should_update:
+            # 누적된 콘텐츠를 실제 콘텐츠에 추가
+            self.current_content += self.pending_content
+
+            if V2Config.DEBUG and self.pending_content:
+                print(
+                    f"\n[DEBUG] 📝 Flushing {len(self.pending_content)} chars "
+                    f"(elapsed: {time_elapsed:.3f}s, force: {force})"
+                )
+
+            self.pending_content = ""
+            self.last_update_time = current_time
+
+            # 패널 업데이트 시간 측정
+            update_start = time.time()
+
+            # 패널 업데이트 - Markdown (대용량 배칭으로 최적화)
+            panel = Panel(
+                Markdown(self.current_content), title="[bold blue]Assistant[/bold blue]", border_style="blue"
+            )
+
+            if self.content_live is None:
+                self.content_live = Live(panel, console=console, refresh_per_second=10)
+                self.content_live.start()
+            else:
+                self.content_live.update(panel)
+
+            update_elapsed = time.time() - update_start
+            if V2Config.DEBUG:
+                print(
+                    f"[DEBUG] 🎨 Panel update took {update_elapsed*1000:.1f}ms "
+                    f"(total content: {len(self.current_content)} chars)"
+                )
 
     def show_spinner(self, message: str, subagent_type: str = "general"):
-        """Spinner 표시 (task_tool 실행 중)"""
+        """Spinner 표시 (agent 작업 중)"""
         # 기존 패널들 닫기
         self.close_all()
 
-        # Subagent 타입별 이모지
+        # 타입별 이모지
         emoji_map = {
+            "Agent": "🤔",  # Main agent thinking
             "Explore": "🔍",
             "Plan": "📋",
             "general-purpose": "⚙️",
@@ -87,7 +136,14 @@ class LivePanelManager:
         emoji = emoji_map.get(subagent_type, "⚙️")
 
         spinner = Spinner("dots", text=Text(f"{emoji} {message}", style="cyan"))
-        panel = Panel(spinner, title=f"[bold cyan]{subagent_type} Agent[/bold cyan]", border_style="cyan")
+
+        # 패널 타이틀 결정
+        if subagent_type == "Agent":
+            title = f"[bold cyan]{subagent_type}[/bold cyan]"
+        else:
+            title = f"[bold cyan]{subagent_type} Agent[/bold cyan]"
+
+        panel = Panel(spinner, title=title, border_style="cyan")
 
         if self.spinner_live is None:
             self.spinner_live = Live(panel, console=console, refresh_per_second=10)
@@ -103,6 +159,10 @@ class LivePanelManager:
 
     def close_all(self):
         """모든 Live 패널 닫기"""
+        # 남은 콘텐츠 플러시
+        if self.pending_content:
+            self.update_content("", force=True)
+
         if self.thinking_live is not None:
             self.thinking_live.stop()
             self.thinking_live = None
@@ -117,6 +177,8 @@ class LivePanelManager:
         """상태 초기화"""
         self.current_thinking = ""
         self.current_content = ""
+        self.pending_content = ""
+        self.last_update_time = 0
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -138,7 +200,8 @@ class EventHandler:
         tags = event.get("tags", [])
         name = event.get("name")
 
-        if "agent" in tags or name == "agent":
+        # Main agent 시작 - thinking 스피너 제거 (reasoning이 바로 스트리밍됨)
+        if ("agent" in tags or name == "agent") and self.task_tool_depth == 0:
             console.print(f"[dim](agent)[/dim]")
         elif "tools" in tags or name == "tools":
             console.print(f"[dim](tools)[/dim]")
@@ -151,6 +214,12 @@ class EventHandler:
         if not chunk or not hasattr(chunk, "content"):
             return
 
+        # 🔧 FIX: Subagent 내부의 스트리밍은 무시 (스피너 유지)
+        if self.task_tool_depth > 0:
+            if V2Config.DEBUG:
+                print(f"\n[DEBUG] ⏭️  Skipping stream (inside subagent, depth={self.task_tool_depth})")
+            return
+
         # Extended Thinking 지원 (content_blocks 있을 때)
         if hasattr(chunk, "content_blocks") and chunk.content_blocks:
             for block in chunk.content_blocks:
@@ -159,33 +228,31 @@ class EventHandler:
                 if block_type == "reasoning":
                     reasoning = block.get("reasoning", "")
                     if reasoning:
-                        # Main agent의 thinking일 때만 spinner 종료
-                        if self.task_tool_depth == 0:
-                            self.panel_manager.hide_spinner()
+                        if V2Config.DEBUG:
+                            print(f"\n[DEBUG] 🧠 Reasoning chunk: {len(reasoning)} chars")
                         self.panel_manager.update_thinking(reasoning)
 
                 elif block_type == "text":
                     text = block.get("text", "")
                     if text:
-                        # Main agent의 content일 때만 spinner 종료
-                        if self.task_tool_depth == 0:
-                            self.panel_manager.hide_spinner()
+                        if V2Config.DEBUG:
+                            print(f"\n[DEBUG] 💬 Text chunk (content_blocks): {len(text)} chars")
                         self.panel_manager.update_content(text)
 
         # 일반 content 스트리밍 (content_blocks가 없거나 비어있을 때)
         # elif가 아니라 별도 체크로 변경!
         if chunk.content and not (hasattr(chunk, "content_blocks") and chunk.content_blocks):
-            # Main agent의 content일 때만 spinner 종료
-            if self.task_tool_depth == 0:
-                self.panel_manager.hide_spinner()
-
             if isinstance(chunk.content, str):
+                if V2Config.DEBUG:
+                    print(f"\n[DEBUG] 💬 Text chunk (str): {len(chunk.content)} chars")
                 self.panel_manager.update_content(chunk.content)
             elif isinstance(chunk.content, list):
                 for block in chunk.content:
                     if isinstance(block, dict) and block.get("type") == "text":
                         text = block.get("text", "")
                         if text:
+                            if V2Config.DEBUG:
+                                print(f"\n[DEBUG] 💬 Text chunk (list): {len(text)} chars")
                             self.panel_manager.update_content(text)
 
     def handle_chat_model_end(self, event: dict):

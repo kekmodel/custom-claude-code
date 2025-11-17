@@ -10,14 +10,15 @@ This is a **research and educational project** that analyzes Claude Code's inter
 
 ### Recent Updates
 
-**v2 LangGraph Refactoring & Fixes** (2025-01):
-- ✅ **Code refactoring** - Simplified comments to essential core concepts only (~54% reduction)
-- ✅ **main.py restructuring** - Extracted LivePanelManager and EventHandler classes for better separation of concerns
-- ✅ **AIMessage duplication fix** - Resolved consecutive AIMessage errors by filtering subagent events
-- ✅ **Message structure validation** - All tests pass: no consecutive AIMessages, proper User/Assistant alternation
-- 📝 **Documentation** - Added AIMESSAGE_DUPLICATION_FIX.md explaining the issue and solution
-- 📝 **Test coverage** - Created test_aimessage_fix.py and test_integration_fix.py for regression testing
-- ⚠️ **Known limitation** - Graph still executes twice (astream_events + ainvoke) for state management; future optimization planned with astream()
+**v2 LangGraph Improvements** (2025-01):
+- ✅ Prompt centralization (`prompts.py`) - Separated prompts from logic for better maintainability
+- ✅ AIMessage duplication fix - Prevents consecutive AIMessages that violate Anthropic API requirements
+- ✅ Conversation compression - Auto-compacts messages at 100k tokens using Claude Haiku + Extended Thinking
+- ✅ State management improvements - Proper RemoveMessage usage to prevent re-compression loops
+- ✅ Multi-model support - OpenAI, Gemini via unified factory pattern in `models.py`
+- ✅ Streaming optimization - Chunk batching eliminates "..." stuttering for long text responses
+- 📝 Parallel tool execution analysis - Verified safety of async tool execution (see PARALLEL_TOOLS_ANALYSIS.md)
+- 📝 Performance fix - Single graph execution with EventHandler message accumulation
 
 ## Project Structure
 
