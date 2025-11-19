@@ -29,9 +29,21 @@ load_dotenv()
 # Configure OpenAI API for v3 (OpenAI Agents SDK requires actual OpenAI API)
 # Note: v3 uses OpenAI API key, not Anthropic
 v3_api_key = os.getenv("OPENAI_API_KEY_V3") or os.getenv("OPENAI_API_KEY")
-if v3_api_key:
-    custom_client = AsyncOpenAI(api_key=v3_api_key)
-    set_default_openai_client(custom_client)
+if not v3_api_key:
+    raise ValueError(
+        "❌ OpenAI API key not found!\n"
+        "v3 requires OpenAI API (not Anthropic).\n"
+        "Please set OPENAI_API_KEY_V3 or OPENAI_API_KEY in your .env file.\n"
+        "Get your key from: https://platform.openai.com/api-keys"
+    )
+
+# v3 must use OpenAI's endpoint, not Anthropic's
+# Explicitly set base_url to OpenAI (ignore OPENAI_BASE_URL env var)
+custom_client = AsyncOpenAI(
+    api_key=v3_api_key,
+    base_url="https://api.openai.com/v1"  # Force OpenAI endpoint
+)
+set_default_openai_client(custom_client)
 
 # Rich console
 console = Console()
@@ -88,7 +100,7 @@ Now, help the user with their request."""
 # Explore Agent - 코드베이스 탐색 전문
 explore_agent = Agent(
     name="Explore Agent",
-    model="claude-haiku-4-5",
+    model="gpt-5.1-codex-mini",
     instructions="""You are a specialized agent for exploring codebases.
 
 Your role:
@@ -109,7 +121,7 @@ Be thorough and concise. Return your findings in a clear report.""",
 # Plan Agent - 계획 수립 전문
 plan_agent = Agent(
     name="Plan Agent",
-    model="claude-haiku-4-5",
+    model="gpt-5.1-codex-mini",
     instructions="""You are a specialized agent for planning implementation tasks.
 
 Your role:
@@ -130,7 +142,7 @@ Return a clear, actionable plan.""",
 # General-purpose Agent - 일반 작업
 general_purpose_agent = Agent(
     name="General Purpose Agent",
-    model="claude-haiku-4-5",
+    model="gpt-5.1-codex-mini",
     instructions="""You are a general-purpose coding agent.
 
 Your role:
@@ -148,7 +160,7 @@ Be thorough and complete your assigned tasks.""",
 # Statusline-setup Agent - 설정 파일 편집 전문
 statusline_setup_agent = Agent(
     name="Statusline Setup Agent",
-    model="claude-haiku-4-5",
+    model="gpt-5.1-codex-mini",
     instructions="""You are a specialized agent for configuring Claude Code status line settings.
 
 Your role:
@@ -193,7 +205,7 @@ statusline_setup_tool = statusline_setup_agent.as_tool(
 # Main Agent (Subagent 도구 포함!)
 agent = Agent(
     name="Coding Assistant",
-    model="claude-haiku-4-5",
+    model="gpt-5.1-codex-mini",
     instructions=get_instructions(),
     tools=TOOLS
     + [
@@ -221,7 +233,7 @@ async def run_conversation_loop():
             "  - Ultra-simple Agent + Runner pattern\n"
             "  - Automatic tool-calling loop\n"
             "  - Session memory support\n"
-            "  - 6 core tools\n\n"
+            "  - 11 tools (file, search, bash, web, background)\n\n"
             "Commands:\n"
             "  - Type 'quit' to exit\n"
             "  - Type 'clear' to clear history",
@@ -231,6 +243,9 @@ async def run_conversation_loop():
     )
 
     # Session (대화 히스토리 자동 관리!)
+    # Create data directory if it doesn't exist
+    import os
+    os.makedirs("data", exist_ok=True)
     session = SQLiteSession("conversation_v3", "data/v3_conversations.db")
 
     while True:
