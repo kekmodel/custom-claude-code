@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **research and educational project** that analyzes Claude Code's internal architecture and provides 4 different implementations demonstrating how to build AI coding assistants. The project is written in Korean but code and technical concepts are universal.
 
-**Key Purpose**: Understand Claude Code's system prompt (~3,000 tokens) + tool schemas (~14,000 tokens), 16 core tools + 2 MCP tools, DAG-based workflow, and multi-agent architecture through complete implementations.
+**Key Purpose**: Understand Claude Code's system prompt (~3,000 tokens) + tool schemas (~14,000 tokens), 16 tools (MCP-extensible), DAG-based workflow, and multi-agent architecture through complete implementations.
 
 ### Recent Updates
 

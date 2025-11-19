@@ -7,8 +7,7 @@
 Claude Code의 내부 동작 원리를 분석하고, 동일한 기능을 4가지 방식으로 구현한 교육/연구 프로젝트입니다.
 
 - 시스템 프롬프트 (약 3,000 토큰) + 도구 스키마 (약 14,000 토큰) = 총 약 17,000 토큰
-- 16개 기본 도구 + 2개 MCP 도구 = 18개
-- DAG 기반 워크플로우, 4가지 Subagent 타입
+- 16개 도구 (MCP로 확장 가능), 4가지 Subagent 타입, DAG 기반 워크플로우
 - 실제 API 요청/응답 캡처 및 시뮬레이션
 
 ---
@@ -118,30 +117,68 @@ custom-claude-code/
 
 ## 핵심 개념
 
-### DAG 구조
+### 실제 동작 구조
 
+**기본 루프:**
 ```
-Main Agent
-  → [Optional] Task(Explore)
-  → [Optional] Task(Plan)
-  → Action (Write/Edit)
-  → Verify (Bash)
-     ↓ 실패? → Fix → Re-verify
-     ↓ 성공 → 완료
+User 요청
+  ↓
+Main Agent (LLM)
+  ↓ 판단
+  ┌─────────────────────┐
+  │ 복잡도에 따라 선택:   │
+  │ - 단순: 직접 처리    │
+  │ - 복잡: Task 호출    │
+  └─────────────────────┘
+  ↓
+도구 실행 (병렬 가능)
+  ↓
+tool_result 분석
+  ↓
+성공? → 다음 단계
+실패? → 오류 분석 → 수정 도구 → 재시도
+  ↓
+반복 (LLM 판단으로 종료)
 ```
 
-- 한 방향 흐름 (순환 없음)
-- 조건부 재시도 (같은 단계만)
-- 자동 Re-plan 없음
+**피드백 루프 (핵심!):**
+```
+예: 코드 작성 → 테스트
+  Write(code.py)
+    ↓
+  Bash(pytest)
+    ↓ tool_result: "FAILED: 3 errors"
+  오류 분석
+    ↓
+  Read(code.py) ← 오류 부분 확인
+    ↓
+  Edit(code.py) ← 수정
+    ↓
+  Bash(pytest)
+    ↓ tool_result: "PASSED: 10 tests"
+  성공 → 완료
+```
 
-### Subagent 4가지 타입
+**특징:**
+- LLM이 tool_result 보고 다음 도구 선택
+- 오류 시 자동으로 수정 시도
+- 성공할 때까지 반복 (또는 LLM 판단으로 중단)
 
-| Agent | 용도 | 도구 |
-|-------|------|------|
-| general-purpose | 복잡한 멀티스텝 작업 | ALL 16 tools |
-| Explore | 코드베이스 탐색 | Glob, Grep, Read |
-| Plan | 구현 계획 수립 | Read, Grep, Glob, Bash |
-| statusline-setup | 설정 파일 편집 | Read, Edit |
+### Subagent (Task 도구)
+
+**Task 도구는 복잡한 작업 시 선택적으로 사용:**
+
+| Agent | 용도 | 도구 | 언제 사용 |
+|-------|------|------|----------|
+| general-purpose | 복잡한 멀티스텝 작업 | ALL 16 tools | 불확실한 탐색/자동화 |
+| Explore | 코드베이스 탐색 | ALL 16 tools | 전체 구조 파악 필요 시 |
+| Plan | 구현 계획 수립 | ALL 16 tools | 복잡한 기능 구현 전 |
+| statusline-setup | 설정 파일 편집 | Read, Edit | 특정 설정만 |
+
+**중요:**
+- Task는 **선택적** - 단순 작업은 Main이 직접 처리
+- Subagent는 **독립 실행** - 별도 컨텍스트, 결과만 Main에게 반환
+- **Stateless** - 각 호출은 독립적
 
 ### 16개 도구
 
@@ -149,9 +186,9 @@ Main Agent
 - **탐색**: Glob, Grep
 - **실행**: Bash, BashOutput, KillShell
 - **에이전트**: Task
-- **관리**: TodoWrite, AskUserQuestion
+- **관리**: TodoWrite, ExitPlanMode
 - **외부**: WebSearch, WebFetch
-- **기타**: ExitPlanMode, SlashCommand
+- **기타**: Skill, SlashCommand
 
 ---
 
@@ -173,30 +210,6 @@ ANTHROPIC_API_KEY=sk-ant-api03-...
 
 ---
 
-## 문서
-
-- [시스템 개요](docs/01-architecture/system-overview.md)
-- [기본 플로우](docs/03-interactions/basic-flow.md)
-- [시스템 프롬프트](docs/02-components/system-prompt.md)
-- [도구](docs/02-components/tools.md)
-- [Subagent](docs/02-components/agents.md)
-
----
-
-## 테스트
-
-```bash
-pytest tests/test_version_imports.py
-pytest tests/test_v1_conversation.py
-pytest tests/v2_improvements/
-```
-
----
-
 ## 라이선스
 
 교육 및 연구 목적. Claude Code는 Anthropic의 공식 제품이며, 이 문서는 비공식 분석입니다.
-
----
-
-**생성**: 2025-11-15 | **업데이트**: 2025-11-19 | **분석 대상**: Claude Code (claude.ai/code)
