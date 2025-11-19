@@ -4,9 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **research and educational project** that analyzes Claude Code's internal architecture and provides 5 different implementations demonstrating how to build AI coding assistants. The project is written in Korean but code and technical concepts are universal.
+This is a **research and educational project** that implements AI coding assistants inspired by Claude Code in 5 different ways. The project is written in Korean but code and technical concepts are universal.
 
-**Key Purpose**: Understand Claude Code's system prompt (~3,000 tokens) + tool schemas (~14,000 tokens), 16 tools (MCP-extensible), DAG-based workflow, and multi-agent architecture through complete implementations.
+**What This Project Implements**:
+- 5 framework implementations (OpenAI API, LangGraph, Agents SDK, Claude SDK)
+- 16 core tools (file ops, search, execution, web, agents)
+- 4 subagent types (general, explore, plan, statusline)
+- LLM-driven conversation loop with tool execution pattern
+
+**Claude Code Reference Materials** (in reference/ folder):
+- System prompt structure
+- Tool schemas
+- Captured API requests/responses
 
 ### Recent Updates
 
@@ -35,7 +44,7 @@ custom-claude-code/
 │   ├── v4_claude_agent/            # Claude Agent SDK (~311 lines)
 │   └── common/                     # Shared utilities
 ├── docs/                           # Architecture documentation (Korean)
-│   ├── 01-architecture/            # System overview, DAG structure
+│   ├── 01-architecture/            # System overview, architecture analysis
 │   ├── 02-components/              # System prompt, tools, agents
 │   ├── 03-interactions/            # Interaction patterns
 │   ├── 04-implementation/          # Implementation guides
@@ -156,19 +165,31 @@ uv lock --upgrade
 
 ## Core Concepts
 
-### DAG Structure (Directed Acyclic Graph)
-All versions implement a one-way flow:
+### Conversation Loop Pattern
+All versions implement an LLM-driven conversation loop:
 ```
-Main Agent
-  → [Optional] Task(Explore) - Research
-  → [Optional] Task(Plan) - Planning
-  → Action - Write/Edit files
-  → Verify - Bash tests
-     → On failure: Fix → Re-verify (conditional loop only here)
-     → On success: Done
+User Input
+  ↓
+LLM Decision (what to do next?)
+  ↓
+  ├─→ [Option] Call Task(Explore/Plan) - For complex multi-step work
+  ├─→ [Option] Direct tool use - For simple operations
+  └─→ [Option] Respond to user - When task is complete
+  ↓
+Tool Execution (parallel when possible)
+  ↓
+LLM Analyzes tool_result
+  ↓
+  ├─→ Success? Continue to next step or finish
+  └─→ Failure? Read error → Edit fix → Re-run (LLM decides)
+  ↓
+Repeat until LLM determines task is complete
 ```
 
-**Critical**: No automatic re-planning, no circular dependencies, user always in control.
+**Key Points**:
+- LLM freely chooses next action based on context
+- No predefined workflow - flexible tool selection
+- User retains control through conversation
 
 ### Subagent System (4 Types)
 All versions support 4 subagent types:
