@@ -274,7 +274,12 @@ async def run_conversation_loop():
             console.print("\n[dim]Thinking...[/dim]\n")
 
             # 이게 전부! Runner.run()이 모든 것을 처리!
-            result = await Runner.run(agent, input=user_input, session=session)  # 히스토리 자동 관리!
+            result = await Runner.run(
+                agent,
+                input=user_input,
+                session=session,
+                max_turns=50  # Increase from default 10 to 50 for complex tasks
+            )
 
             # 결과 표시
             console.print(
