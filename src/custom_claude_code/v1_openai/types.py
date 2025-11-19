@@ -129,6 +129,12 @@ class NotebookEditInput(BaseModel):
     edit_mode: Optional[str] = Field("replace", description="'replace', 'insert', or 'delete'")
 
 
+class BashBackgroundInput(BaseModel):
+    """BashBackground tool input schema"""
+    command: str = Field(description="Bash command to execute in background")
+    description: str = Field("", description="Short description of what this command does")
+
+
 class BashOutputInput(BaseModel):
     """BashOutput tool input schema"""
     bash_id: str = Field(description="Background bash shell ID")

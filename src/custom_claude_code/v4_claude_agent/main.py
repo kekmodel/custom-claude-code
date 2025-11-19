@@ -21,6 +21,7 @@ from claude_agent_sdk import (
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
+    create_sdk_mcp_server,
 )
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
@@ -30,6 +31,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from .config import SUBAGENTS
+from .tools import CUSTOM_TOOLS
 
 # Load environment variables
 load_dotenv()
@@ -63,7 +65,8 @@ async def run_conversation_loop():
             "  - Anthropic official SDK\n"
             "  - Subagents: agents parameter (4 types)\n"
             "  - System prompt: claude_code preset\n"
-            "  - All tools: Read, Write, Edit, Bash, Glob, Grep\n"
+            "  - Built-in tools: Read, Write, Edit, Bash, Glob, Grep\n"
+            "  - Custom tools (v2.1): Background execution, Web access\n"
             "  - Native MCP support (extensible)\n\n"
             "Commands:\n"
             "  - Type 'quit' to exit\n"
@@ -73,18 +76,34 @@ async def run_conversation_loop():
         )
     )
 
+    # Create custom tools MCP server
+    custom_server = create_sdk_mcp_server(
+        name="custom-tools",
+        version="1.0.0",
+        tools=CUSTOM_TOOLS,
+    )
+
     # Claude Agent SDK options
     options = ClaudeAgentOptions(
         # Tool configuration
         allowed_tools=[
+            # Built-in tools
             "Read",
             "Write",
             "Edit",
             "Bash",
             "Glob",
             "Grep",
+            # Custom tools (v2.1 features)
+            "mcp__custom__bash_background",
+            "mcp__custom__bash_output",
+            "mcp__custom__kill_shell",
+            "mcp__custom__web_search",
+            "mcp__custom__web_fetch",
             # Subagent tools are automatically added!
         ],
+        # MCP servers
+        mcp_servers={"custom": custom_server},
         # Permission mode
         permission_mode="default",  # Ask user for confirmation
         # System prompt - Use Claude Code preset!

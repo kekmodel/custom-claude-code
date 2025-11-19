@@ -10,6 +10,7 @@ OpenAI 최신 패턴:
 import os
 import subprocess
 import json
+import uuid
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from glob import glob as python_glob
@@ -19,10 +20,17 @@ from .types import (
     ReadInput, WriteInput, EditInput, BashInput,
     GlobInput, GrepInput, TodoWriteInput, TaskInput,
     ExitPlanModeInput, AskUserQuestionInput,
-    NotebookEditInput, BashOutputInput, KillShellInput,
+    NotebookEditInput, BashBackgroundInput, BashOutputInput, KillShellInput,
     WebSearchInput, WebFetchInput, SlashCommandInput,
     ToolResult
 )
+
+
+# ============================================================================
+# 백그라운드 프로세스 관리 (v2.1 feature)
+# ============================================================================
+
+BACKGROUND_PROCESSES: Dict[str, subprocess.Popen] = {}
 
 
 # ============================================================================
@@ -116,6 +124,14 @@ TOOLS = [
             "name": "NotebookEdit",
             "description": "Edit a Jupyter notebook (.ipynb file) cell. Supports replace, insert, delete modes.",
             "parameters": NotebookEditInput.model_json_schema(),
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "BashBackground",
+            "description": "Run a bash command in the background and return a shell ID for monitoring. Use for long-running commands like servers or watchers.",
+            "parameters": BashBackgroundInput.model_json_schema(),
         }
     },
     {
@@ -562,62 +578,252 @@ async def tool_notebookedit(input_data: NotebookEditInput) -> str:
     return f"Notebook edited successfully: {input_data.notebook_path}"
 
 
+async def tool_bashbackground(input_data: BashBackgroundInput) -> str:
+    """
+    백그라운드에서 bash 명령 실행
+
+    v2.1 feature: 백그라운드 프로세스 실행 및 shell_id 반환
+    """
+    shell_id = str(uuid.uuid4())[:8]
+
+    try:
+        proc = subprocess.Popen(
+            input_data.command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=os.getcwd(),
+            bufsize=1,
+        )
+        BACKGROUND_PROCESSES[shell_id] = proc
+
+        desc_text = f" ({input_data.description})" if input_data.description else ""
+        return f"✓ Started background process{desc_text}\nShell ID: {shell_id}\nUse BashOutput('{shell_id}') to check output"
+
+    except Exception as e:
+        return f"[ERROR] Failed to start background process: {type(e).__name__}: {str(e)}"
+
+
 async def tool_bashoutput(input_data: BashOutputInput) -> str:
     """
     백그라운드 bash 출력 읽기
 
-    NOTE: 실제 구현은 백그라운드 프로세스 관리 필요
+    v2.1 feature: shell_id로 프로세스 출력 확인
     """
-    # 간단한 구현: 실제로는 프로세스 관리 시스템 필요
-    return f"[PLACEHOLDER] BashOutput not fully implemented. bash_id: {input_data.bash_id}"
+    proc = BACKGROUND_PROCESSES.get(input_data.bash_id)
+
+    if not proc:
+        return f"[ERROR] Shell not found: {input_data.bash_id}\nAvailable shells: {list(BACKGROUND_PROCESSES.keys())}"
+
+    try:
+        poll_result = proc.poll()
+        output_lines = []
+
+        # stdout 읽기
+        if proc.stdout:
+            try:
+                import select
+                if select.select([proc.stdout], [], [], 0)[0]:
+                    line = proc.stdout.readline()
+                    while line:
+                        output_lines.append(line.rstrip())
+                        if not select.select([proc.stdout], [], [], 0)[0]:
+                            break
+                        line = proc.stdout.readline()
+            except (IOError, OSError, ValueError):
+                pass
+
+        # stderr 읽기
+        if proc.stderr:
+            try:
+                import select
+                if select.select([proc.stderr], [], [], 0)[0]:
+                    line = proc.stderr.readline()
+                    while line:
+                        output_lines.append(f"[stderr] {line.rstrip()}")
+                        if not select.select([proc.stderr], [], [], 0)[0]:
+                            break
+                        line = proc.stderr.readline()
+            except (IOError, OSError, ValueError):
+                pass
+
+        # Filter 적용
+        if input_data.filter and output_lines:
+            regex = re.compile(input_data.filter)
+            output_lines = [line for line in output_lines if regex.search(line)]
+
+        # 상태 정보
+        if poll_result is None:
+            status = "Running"
+        else:
+            status = f"Exited (code: {poll_result})"
+            del BACKGROUND_PROCESSES[input_data.bash_id]
+
+        result = f"Shell {input_data.bash_id} - {status}\n"
+        if output_lines:
+            result += "\n".join(output_lines)
+        else:
+            result += "(no new output)"
+
+        return result
+
+    except Exception as e:
+        return f"[ERROR] Failed to read output: {type(e).__name__}: {str(e)}"
 
 
 async def tool_killshell(input_data: KillShellInput) -> str:
     """
     백그라운드 bash 종료
 
-    NOTE: 실제 구현은 프로세스 관리 필요
+    v2.1 feature: shell_id로 프로세스 종료
     """
-    return f"[PLACEHOLDER] KillShell not fully implemented. shell_id: {input_data.shell_id}"
+    proc = BACKGROUND_PROCESSES.get(input_data.shell_id)
+
+    if not proc:
+        return f"[ERROR] Shell not found: {input_data.shell_id}\nAvailable shells: {list(BACKGROUND_PROCESSES.keys())}"
+
+    try:
+        proc.kill()
+        proc.wait(timeout=5)
+        del BACKGROUND_PROCESSES[input_data.shell_id]
+        return f"✓ Killed shell: {input_data.shell_id}"
+
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        del BACKGROUND_PROCESSES[input_data.shell_id]
+        return f"✓ Force killed shell: {input_data.shell_id}"
+
+    except Exception as e:
+        return f"[ERROR] Failed to kill shell: {type(e).__name__}: {str(e)}"
 
 
 async def tool_websearch(input_data: WebSearchInput) -> str:
     """
-    웹 검색
+    웹 검색 (DuckDuckGo)
 
-    NOTE: 실제 구현은 검색 API (Google, Bing) 필요
+    v2.1 feature: DuckDuckGo를 사용한 실제 웹 검색
     """
-    # OpenAI에는 웹 검색 기능이 없으므로 플레이스홀더
-    return f"[PLACEHOLDER] WebSearch not available with OpenAI. Query: {input_data.query}\n\nSuggestion: Use WebFetch to fetch specific URLs instead."
+    try:
+        from ddgs import DDGS
+
+        results = []
+        with DDGS() as ddgs:
+            for r in ddgs.text(input_data.query, max_results=5):
+                results.append(f"**[{r['title']}]({r['href']})**\n{r['body']}\n")
+
+        if not results:
+            return f"No results found for: {input_data.query}"
+
+        return f"Search results for '{input_data.query}':\n\n" + "\n---\n\n".join(results)
+
+    except ImportError:
+        return "[ERROR] ddgs package not installed. Run: uv add ddgs"
+    except Exception as e:
+        return f"[ERROR] Search failed: {type(e).__name__}: {str(e)}"
 
 
 async def tool_webfetch(input_data: WebFetchInput) -> str:
     """
-    URL 가져오기
+    URL 가져오기 (BeautifulSoup)
 
-    NOTE: 간단한 구현 (실제 Claude Code는 AI로 처리)
+    v2.1 feature: 스마트 콘텐츠 추출 및 구조 보존
     """
     try:
-        import urllib.request
-        import html2text
+        import httpx
+        from bs4 import BeautifulSoup
 
-        # URL 가져오기
-        with urllib.request.urlopen(input_data.url, timeout=10) as response:
-            html_content = response.read().decode('utf-8')
+        # Fetch content
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            response = await client.get(input_data.url)
+            response.raise_for_status()
 
-        # HTML을 Markdown으로 변환
-        h = html2text.HTML2Text()
-        h.ignore_links = False
-        markdown_content = h.handle(html_content)
+        # Parse HTML
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        # 길이 제한
-        if len(markdown_content) > 5000:
-            markdown_content = markdown_content[:5000] + "\n\n[Truncated...]"
+        # Remove unwanted elements
+        for element in soup(["script", "style", "nav", "footer", "header", "aside", "iframe", "noscript"]):
+            element.decompose()
 
-        return f"Content from {input_data.url}:\n\n{markdown_content}"
+        # Find main content
+        main_content = None
+        for tag in ["article", "main", "[role='main']"]:
+            main_content = soup.select_one(tag)
+            if main_content:
+                break
 
+        if not main_content:
+            for selector in ["#content", "#main-content", ".content", ".main-content"]:
+                main_content = soup.select_one(selector)
+                if main_content:
+                    break
+
+        if not main_content:
+            main_content = soup.body if soup.body else soup
+
+        # Extract text with structure
+        def extract_structured_text(element):
+            if not element:
+                return []
+
+            lines = []
+            for child in element.children:
+                if isinstance(child, str):
+                    text = child.strip()
+                    if text:
+                        lines.append(text)
+                elif child.name:
+                    if child.name in ["pre", "code"]:
+                        code_text = child.get_text(strip=True)
+                        if code_text:
+                            lines.append(f"\n```\n{code_text}\n```\n")
+                    elif child.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+                        heading_text = child.get_text(strip=True)
+                        if heading_text:
+                            level = int(child.name[1])
+                            lines.append(f"\n{'#' * level} {heading_text}\n")
+                    elif child.name in ["li"]:
+                        li_text = child.get_text(strip=True)
+                        if li_text:
+                            lines.append(f"- {li_text}")
+                    elif child.name not in ["script", "style"]:
+                        lines.extend(extract_structured_text(child))
+
+            return lines
+
+        content_lines = extract_structured_text(main_content)
+        clean_text = "\n".join(content_lines)
+        clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
+
+        # Smart truncation
+        max_length = 15000
+        if len(clean_text) > max_length:
+            truncate_point = clean_text.rfind('\n\n', 0, max_length)
+            if truncate_point > max_length * 0.8:
+                clean_text = clean_text[:truncate_point]
+            else:
+                truncate_point = clean_text.rfind('. ', 0, max_length)
+                if truncate_point > max_length * 0.8:
+                    clean_text = clean_text[:truncate_point + 1]
+                else:
+                    clean_text = clean_text[:max_length]
+
+            clean_text += "\n\n[Content truncated. Use prompt parameter to request specific information.]"
+
+        title = soup.title.string if soup.title else "No title"
+        result = f"**URL**: {input_data.url}\n**Title**: {title}\n**Task**: {input_data.prompt}\n\n**Content**:\n\n{clean_text}"
+
+        if len(result) > 20000:
+            result = result[:20000] + "\n\n[Note: Content is extensive. Refine your prompt for specific information.]"
+
+        return result
+
+    except ImportError:
+        return "[ERROR] Required packages not installed. Run: uv add httpx beautifulsoup4"
+    except httpx.HTTPStatusError as e:
+        return f"[ERROR] HTTP {e.response.status_code}: {input_data.url}"
     except Exception as e:
-        return f"Error fetching URL: {str(e)}"
+        return f"[ERROR] Failed to fetch URL: {type(e).__name__}: {str(e)}"
 
 
 async def tool_slashcommand(input_data: SlashCommandInput) -> str:
@@ -657,6 +863,7 @@ TOOL_REGISTRY = {
     "TodoWrite": (TodoWriteInput, tool_todowrite),
     "ExitPlanMode": (ExitPlanModeInput, tool_exitplanmode),
     "NotebookEdit": (NotebookEditInput, tool_notebookedit),
+    "BashBackground": (BashBackgroundInput, tool_bashbackground),
     "BashOutput": (BashOutputInput, tool_bashoutput),
     "KillShell": (KillShellInput, tool_killshell),
     "WebSearch": (WebSearchInput, tool_websearch),

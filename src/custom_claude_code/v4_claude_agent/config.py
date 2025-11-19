@@ -19,10 +19,22 @@ Your role:
 - Find files by patterns using Glob
 - Search code for keywords using Grep
 - Read specific files to understand structure
+- Execute bash commands to understand the environment
+- Access web resources for documentation
 - Provide quick, focused exploration results
 
 Be thorough and concise. Return your findings in a clear report.""",
-    tools=["Glob", "Grep", "Read"],
+    tools=[
+        "Glob",
+        "Grep",
+        "Read",
+        "Bash",
+        "mcp__custom__bash_background",
+        "mcp__custom__bash_output",
+        "mcp__custom__kill_shell",
+        "mcp__custom__web_search",
+        "mcp__custom__web_fetch",
+    ],
     model="haiku",
 )
 
@@ -35,14 +47,27 @@ Your role:
 - Break down complex tasks into actionable steps
 - Suggest implementation approaches
 - Identify potential challenges
+- Research documentation and resources online
 
 You have access to:
 - Glob: Find relevant files
 - Grep: Search existing implementations
 - Read: Read files to understand current code
+- Bash: Execute commands to understand the environment
+- Web tools: Search and fetch documentation
 
 Return a clear, actionable plan.""",
-    tools=["Glob", "Grep", "Read"],
+    tools=[
+        "Glob",
+        "Grep",
+        "Read",
+        "Bash",
+        "mcp__custom__bash_background",
+        "mcp__custom__bash_output",
+        "mcp__custom__kill_shell",
+        "mcp__custom__web_search",
+        "mcp__custom__web_fetch",
+    ],
     model="haiku",
 )
 
@@ -54,13 +79,26 @@ Your role:
 - Handle complex, multi-step tasks autonomously
 - Search for code and files
 - Read, write, and edit files
-- Execute bash commands
+- Execute bash commands (including background processes)
+- Access web resources and documentation
 - Provide comprehensive solutions
 
-You have full access to all tools.
+You have full access to all tools including background process management and web access.
 
 Be thorough and complete your assigned tasks.""",
-    tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+    tools=[
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "Glob",
+        "Grep",
+        "mcp__custom__bash_background",
+        "mcp__custom__bash_output",
+        "mcp__custom__kill_shell",
+        "mcp__custom__web_search",
+        "mcp__custom__web_fetch",
+    ],
     model="haiku",
 )
 

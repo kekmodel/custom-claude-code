@@ -17,9 +17,47 @@ Anthropic의 공식 AI 코딩 어시스턴트인 **Claude Code**의 내부 동�
 - Git/PR 작성 워크플로우
 
 **도구 스키마** (~14,000 토큰):
-- 16개 핵심 도구 정의 (파일, 검색, 실행, 웹, 에이전트 등)
+- 16개 기본 도구 정의 (파일, 검색, 실행, 웹, 에이전트 등)
 - 각 도구의 파라미터 및 설명
 - MCP(Model Context Protocol)로 확장 가능
+
+**16개 기본 도구**:
+
+1. **파일 조작 (4개)**
+   - `Read`: 파일 읽기 (라인 번호 포함, offset/limit 지원)
+   - `Write`: 파일 쓰기 (기존 파일 덮어쓰기)
+   - `Edit`: 파일 편집 (문자열 치환 방식)
+   - `NotebookEdit`: Jupyter 노트북 셀 편집
+
+2. **코드 검색 (2개)**
+   - `Glob`: 파일 패턴 매칭 (예: `**/*.ts`)
+   - `Grep`: 정규식 기반 코드 검색 (ripgrep 사용)
+
+3. **명령 실행 (3개)**
+   - `Bash`: 동기 bash 명령 실행
+   - `BashOutput`: 백그라운드 프로세스 출력 읽기
+   - `KillShell`: 백그라운드 프로세스 종료
+
+4. **웹 접근 (2개)**
+   - `WebSearch`: 웹 검색 (도메인 필터링 지원)
+   - `WebFetch`: URL 컨텐츠 가져오기 및 분석
+
+5. **에이전트 (1개)**
+   - `Task`: 서브에이전트 실행 (복잡한 멀티스텝 작업 위임)
+     - `general-purpose`: 범용 에이전트 (모든 도구 사용)
+     - `Explore`: 코드베이스 탐색 전문 (파일 찾기, 검색)
+     - `Plan`: 구현 계획 수립 전문 (읽기 전용)
+     - `statusline-setup`: 설정 파일 편집 전문 (Read, Edit만)
+
+6. **관리/UI (4개)**
+   - `TodoWrite`: 작업 목록 관리
+   - `ExitPlanMode`: 계획 모드 종료
+   - `Skill`: 스킬 실행 (확장 기능)
+   - `SlashCommand`: 커스텀 슬래시 명령 실행
+
+**MCP 확장**:
+- MCP(Model Context Protocol)를 통해 외부 도구 추가 가능
+- 예: context7 (라이브러리 문서 검색), filesystem, database 등
 
 **핵심 동작 패턴** - 대화 루프:
 
@@ -42,16 +80,6 @@ LLM이 tool_result 분석
 LLM이 완료 판단할 때까지 반복
 ```
 
-**실제 동작 예시** (코드 작성 → 테스트):
-```
-1. Write(code.py) 실행
-2. Bash(pytest) 실행 → "FAILED: 3 errors"
-3. LLM이 오류 분석 후 Read(code.py) 호출
-4. LLM이 Edit(code.py)로 수정
-5. Bash(pytest) 재실행 → "PASSED: 10 tests"
-6. LLM이 완료 판단 → 사용자에게 결과 보고
-```
-
 **핵심 특징**:
 - ✅ LLM이 상황에 맞게 도구 자유롭게 선택
 - ✅ 실패 시 자동 복구 시도 (LLM 판단)
@@ -66,13 +94,19 @@ LLM이 완료 판단할 때까지 반복
 
 ## 🎓 이 프로젝트 (교육용 구현)
 
-위 분석을 바탕으로 **5가지 프레임워크**로 동일한 기능을 구현한 교육/연구 프로젝트입니다.
+위 분석을 바탕으로 **4가지 프레임워크**로 동일한 기능을 구현한 교육/연구 프로젝트입니다.
 
-### 구현 내용
+### 구현 내용 (v2.1 기준)
 
-- **5가지 프레임워크**: OpenAI API, LangGraph, LangGraph Improved, OpenAI Agents SDK, Claude SDK
-- **16개 도구**: 파일 조작, 코드 검색, 명령 실행, 웹 접근, 서브에이전트 등
-- **4가지 Subagent**: general-purpose, Explore, Plan, statusline-setup
+- **4가지 프레임워크**: OpenAI API, LangGraph (v2/v2.1), OpenAI Agents SDK, Claude SDK
+- **5개 구현 버전**: v1, v2, v2.1, v3, v4
+- **13개 도구**: 파일 조작(3), 검색(2), 실행(4), 웹 접근(2), 관리(2)
+  - 파일: read_file, write_file, edit_file
+  - 검색: glob_files, grep_code
+  - 실행: run_bash, bash_background, bash_output, kill_shell
+  - 웹: web_search, web_fetch
+  - 관리: todo_write, task_tool
+- **3가지 Subagent**: general-purpose, Explore, Plan
 - **대화 루프 패턴**: LLM 판단 → 도구 실행 → 결과 분석 → 반복
 
 ---
@@ -123,10 +157,10 @@ custom-claude-code/
 | **코드량** | ~1,891줄 | ~2,376줄 | ~585줄 | ~516줄 | ~311줄 |
 | **LLM 지원** | OpenAI/Claude | OpenAI/Claude/Gemini | OpenAI/Claude/Gemini | OpenAI | Claude |
 | **핵심 패턴** | 수동 대화 루프 | StateGraph + 압축 | StateGraph 단순화 | Agent + Runner | ClaudeSDKClient |
-| **도구 개수** | 16개 | 9개 | 14개 | 9개 | 16개 |
+| **도구 개수** | 17개 | 9개 | 13개 | 11개 | 11개 (6+5) |
 | **Subagent** | 재귀 실행 | 독립 StateGraph | Tag 필터링 | Agent.as_tool() | agents 파라미터 |
 | **메시지 압축** | 없음 | 100k 토큰 자동 | 없음 (단순화) | 없음 | 없음 |
-| **웹 접근** | ✅ | ❌ | ✅ (신규) | ❌ | ✅ |
+| **웹 접근** | ✅ | ❌ | ✅ (신규) | ✅ (신규) | ✅ (신규) |
 
 ### v1: OpenAI API 직접 사용
 
@@ -183,23 +217,25 @@ uv run python test_v2.1_basic.py  # 기본 테스트
 ### v3: OpenAI Agents SDK
 
 **파일**:
-- main.py (286줄), tools.py (221줄)
+- main.py (286줄), tools.py (500줄)
 
 **특징**:
 - Agent.as_tool()로 Subagent 변환
 - SQLiteSession 자동 히스토리
 - @function_tool 데코레이터
+- 11개 도구 (v2.1과 동일한 기능)
 
 ### v4: Claude Agent SDK
 
 **파일**:
-- main.py (208줄), config.py (94줄)
+- main.py (228줄), config.py (120줄), tools.py (360줄)
 
 **특징**:
 - Subagent = 설정 (agents 파라미터)
 - System Prompt Preset (claude_code)
 - MCP 네이티브, Hook 시스템
 - Anthropic 공식 SDK
+- 11개 도구 (6 SDK 기본 + 5 커스텀 MCP 도구)
 
 ---
 
