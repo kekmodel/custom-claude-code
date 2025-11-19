@@ -1,10 +1,10 @@
 # Custom Claude Code
 
-> Claude Code 내부 아키텍처 분석 및 4가지 구현 방법 비교
+> Claude Code 내부 아키텍처 분석 및 5가지 구현 방법 비교
 
 ## 개요
 
-Claude Code의 내부 동작 원리를 분석하고, 동일한 기능을 4가지 방식으로 구현한 교육/연구 프로젝트입니다.
+Claude Code의 내부 동작 원리를 분석하고, 동일한 기능을 5가지 방식으로 구현한 교육/연구 프로젝트입니다.
 
 - 시스템 프롬프트 (약 3,000 토큰) + 도구 스키마 (약 14,000 토큰) = 총 약 17,000 토큰
 - 16개 도구 (MCP로 확장 가능), 4가지 Subagent 타입, DAG 기반 워크플로우
@@ -22,11 +22,12 @@ uv sync
 cp .env.example .env
 
 # 실행
-uv run python launcher.py                              # 대화형 런처
-uv run python -m custom_claude_code.v1_openai.main     # v1
-uv run python -m custom_claude_code.v2_langgraph.main  # v2
-uv run python -m custom_claude_code.v3_openai_agents.main  # v3
-uv run python -m custom_claude_code.v4_claude_agent.main   # v4
+uv run python launcher.py                                          # 대화형 런처
+uv run python -m custom_claude_code.v1_openai.main                 # v1
+uv run python -m custom_claude_code.v2_langgraph.main              # v2
+uv run python -m custom_claude_code.v2_1_langgraph_improved.main   # v2.1 ⭐ 최신!
+uv run python -m custom_claude_code.v3_openai_agents.main          # v3
+uv run python -m custom_claude_code.v4_claude_agent.main           # v4
 ```
 
 ---
@@ -36,17 +37,12 @@ uv run python -m custom_claude_code.v4_claude_agent.main   # v4
 ```
 custom-claude-code/
 ├── src/custom_claude_code/
-│   ├── v1_openai/          # OpenAI API 직접 (1,966 lines)
-│   ├── v2_langgraph/       # LangGraph StateGraph (2,376 lines)
-│   ├── v3_openai_agents/   # OpenAI Agents SDK (516 lines)
-│   ├── v4_claude_agent/    # Claude Agent SDK (311 lines)
+│   ├── v1_openai/              # OpenAI API 직접 (1,966 lines)
+│   ├── v2_langgraph/           # LangGraph StateGraph (2,376 lines)
+│   ├── v2_1_langgraph_improved/ # v2 개선 버전 (2025-11-19)
+│   ├── v3_openai_agents/       # OpenAI Agents SDK (516 lines)
+│   ├── v4_claude_agent/        # Claude Agent SDK (311 lines)
 │   └── common/
-├── docs/                   # 아키텍처 문서 (한글)
-│   ├── 01-architecture/
-│   ├── 02-components/
-│   ├── 03-interactions/
-│   ├── 04-implementation/
-│   └── 05-improvements/
 ├── reference/              # 실제 캡처 데이터
 ├── tests/                  # 테스트
 ├── launcher.py
@@ -55,15 +51,17 @@ custom-claude-code/
 
 ---
 
-## 4가지 구현 비교
+## 5가지 구현 비교
 
-| 특징 | v1 | v2 | v3 | v4 |
-|------|----|----|----|----|
-| **LLM 지원** | OpenAI/Claude | OpenAI/Claude/Gemini | OpenAI | Claude |
-| **핵심 패턴** | 수동 대화 루프 | StateGraph | Agent + Runner | ClaudeSDKClient |
-| **Subagent** | 재귀 실행 | 독립 StateGraph | Agent.as_tool() | agents 파라미터 |
-| **프롬프트** | 수동 | 수동 | 수동 | Preset |
-| **MCP** | 수동 구현 | 수동 구현 | 미지원 | 네이티브 |
+| 특징 | v1 | v2 | v2.1 ⭐ | v3 | v4 |
+|------|----|----|---------|----|----|
+| **코드량** | ~1,891줄 | ~2,376줄 | ~585줄 | ~516줄 | ~311줄 |
+| **LLM 지원** | OpenAI/Claude | OpenAI/Claude/Gemini | OpenAI/Claude/Gemini | OpenAI | Claude |
+| **핵심 패턴** | 수동 대화 루프 | StateGraph + 압축 | StateGraph 단순화 | Agent + Runner | ClaudeSDKClient |
+| **도구 개수** | 16개 | 9개 | 14개 | 9개 | 16개 |
+| **Subagent** | 재귀 실행 | 독립 StateGraph | Tag 필터링 | Agent.as_tool() | agents 파라미터 |
+| **메시지 압축** | 없음 | 100k 토큰 자동 | 없음 (단순화) | 없음 | 없음 |
+| **웹 접근** | ✅ | ❌ | ✅ (신규) | ❌ | ✅ |
 
 ### v1: OpenAI API 직접 사용
 
@@ -91,6 +89,31 @@ custom-claude-code/
 - Prompt 중앙화, AIMessage 중복 수정
 - 대화 압축 (100k 토큰), 멀티 모델 지원
 - 스트리밍 최적화, 도구 개선
+
+### v2.1: LangGraph Improved (NEW - 2025-11-19)
+
+**파일**:
+- main.py, graph.py, nodes.py, tools.py, prompts.py, models.py, config.py
+
+**주요 개선 사항**:
+1. **코드 단순화**:
+   - `compact_messages()` 제거 (273줄 삭제, 불필요한 압축 로직)
+   - `call_agent()` 단순화 (~120줄 → ~13줄, 83% 감소)
+   - `EventHandler` depth tracking 제거 (callbacks=[] 신뢰)
+
+2. **도구 확장** (9개 → 14개):
+   - 백그라운드 실행: `bash_background`, `bash_output`, `kill_shell`
+   - 웹 접근: `web_search` (DuckDuckGo), `web_fetch` (URL 파싱)
+
+3. **프롬프트 개선**:
+   - 새 도구 사용 가이드 추가
+   - 버전 2.1.0으로 업데이트
+
+**실행**:
+```bash
+uv run python -m custom_claude_code.v2_1_langgraph_improved.main
+uv run python test_v2.1_basic.py  # 기본 테스트
+```
 
 ### v3: OpenAI Agents SDK
 
@@ -197,7 +220,7 @@ tool_result 분석
 `.env`:
 
 ```bash
-# v1, v2: Anthropic API를 OpenAI SDK로 호출
+# v1, v2, v2.1: Anthropic API를 OpenAI SDK로 호출
 OPENAI_API_KEY=sk-ant-api03-...
 OPENAI_BASE_URL=https://api.anthropic.com/v1/
 
@@ -207,6 +230,8 @@ OPENAI_API_KEY_V3=sk-proj-...
 # v4: Claude Agent SDK
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
+
+**권장 버전**: **v2.1** (단순하고 도구가 많음) 또는 **v4** (공식 SDK)
 
 ---
 

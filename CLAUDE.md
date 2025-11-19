@@ -4,39 +4,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **research and educational project** that analyzes Claude Code's internal architecture and provides 4 different implementations demonstrating how to build AI coding assistants. The project is written in Korean but code and technical concepts are universal.
+This is a **research and educational project** that analyzes Claude Code's internal architecture and provides 5 different implementations demonstrating how to build AI coding assistants. The project is written in Korean but code and technical concepts are universal.
 
 **Key Purpose**: Understand Claude Code's system prompt (~3,000 tokens) + tool schemas (~14,000 tokens), 16 tools (MCP-extensible), DAG-based workflow, and multi-agent architecture through complete implementations.
 
 ### Recent Updates
 
-**v2 LangGraph Improvements** (2025-01):
-- ✅ Prompt centralization (`prompts.py`) - Separated prompts from logic for better maintainability
-- ✅ AIMessage duplication fix - Prevents consecutive AIMessages that violate Anthropic API requirements
-- ✅ Conversation compression - Auto-compacts messages at 100k tokens using Claude Haiku + Extended Thinking
-- ✅ State management improvements - Proper RemoveMessage usage to prevent re-compression loops
+**v2.1 LangGraph Improved** (2025-11-19):
+- ✅ Code simplification - Removed unnecessary `compact_messages()` (273 lines deleted), simplified `call_agent()` (83% reduction)
+- ✅ Tool expansion - 9→14 tools: Added background execution (`bash_background`, `bash_output`, `kill_shell`), web access (`web_search`, `web_fetch`)
+- ✅ Subagent message filtering fix - Tag + depth-based filtering prevents duplicate AIMessages in conversation history
+- ✅ EventHandler improvements - Removed depth tracking complexity, relies on `callbacks=[]` and tag-based filtering
+- ✅ Prompt updates - Enhanced guidance for new tools, version 2.1.0
+
+**v2 LangGraph Base** (2025-01):
+- ✅ Prompt centralization (`prompts.py`) - Separated prompts from logic
+- ✅ Conversation compression - Auto-compacts at 100k tokens using Claude Haiku + Extended Thinking
 - ✅ Multi-model support - OpenAI, Gemini via unified factory pattern in `models.py`
-- ✅ Streaming optimization - Chunk batching eliminates "..." stuttering for long text responses
-- 📝 Parallel tool execution analysis - Verified safety of async tool execution (see PARALLEL_TOOLS_ANALYSIS.md)
-- 📝 Performance fix - Single graph execution with EventHandler message accumulation
+- ✅ Streaming optimization - Chunk batching eliminates stuttering
 
 ## Project Structure
 
 ```
 custom-claude-code/
-├── src/custom_claude_code/    # 4 implementation versions
-│   ├── v1_openai/              # OpenAI API direct (~1,891 lines)
-│   ├── v2_langgraph/           # LangGraph StateGraph (~450 lines)
-│   ├── v3_openai_agents/       # OpenAI Agents SDK (~280 lines)
-│   └── v4_claude_agent/        # Claude Agent SDK (~302 lines)
-├── docs/                       # Architecture documentation (Korean)
-│   ├── 01-architecture/        # System overview, DAG structure
-│   ├── 02-components/          # System prompt, tools, agents
-│   ├── 03-interactions/        # Interaction patterns
-│   └── 04-implementation/      # Implementation guides
-├── examples/                   # Interaction simulations (JSON)
-├── references/                 # Captured Claude Code data
-└── test files/launcher/demos   # Testing and demonstration scripts
+├── src/custom_claude_code/        # 5 implementation versions
+│   ├── v1_openai/                  # OpenAI API direct (~1,891 lines)
+│   ├── v2_langgraph/               # LangGraph StateGraph (~2,376 lines) - Base with compression
+│   ├── v2_1_langgraph_improved/    # LangGraph Improved (~585 lines) - v2.1 simplified
+│   ├── v3_openai_agents/           # OpenAI Agents SDK (~516 lines)
+│   ├── v4_claude_agent/            # Claude Agent SDK (~311 lines)
+│   └── common/                     # Shared utilities
+├── docs/                           # Architecture documentation (Korean)
+│   ├── 01-architecture/            # System overview, DAG structure
+│   ├── 02-components/              # System prompt, tools, agents
+│   ├── 03-interactions/            # Interaction patterns
+│   ├── 04-implementation/          # Implementation guides
+│   └── 05-improvements/            # v2.1 improvements documentation
+├── tests/                          # Test suite
+│   └── v2_improvements/            # v2/v2.1 specific tests
+├── launcher.py                     # Interactive version selector
+├── test_v*.py                      # Version-specific test scripts
+└── README.md                       # Korean documentation
 ```
 
 ## Development Commands
@@ -54,8 +62,11 @@ uv run python launcher.py
 # v1 - OpenAI API direct implementation
 uv run python -m custom_claude_code.v1_openai.main
 
-# v2 - LangGraph StateGraph implementation
+# v2 - LangGraph StateGraph implementation (with compression)
 uv run python -m custom_claude_code.v2_langgraph.main
+
+# v2.1 - LangGraph Improved implementation (simplified, 14 tools)
+uv run python -m custom_claude_code.v2_1_langgraph_improved.main
 
 # v3 - OpenAI Agents SDK implementation
 uv run python -m custom_claude_code.v3_openai_agents.main
@@ -67,19 +78,18 @@ uv run python -m custom_claude_code.v4_claude_agent.main
 ### Testing
 
 ```bash
-# Test all versions
-uv run python test_all_versions.py
+# v2.1 tests (new)
+uv run python test_v2.1_basic.py        # Basic functionality test
+uv run python test_v2.1_tools.py        # 14 tools validation
+uv run python test_v2.1_subagents.py    # Subagent filtering test
 
-# Test specific version
+# Version-specific tests
 uv run python test_v1_only.py
 uv run python test_v2_korean.py
 uv run python test_v4_korean.py
 
-# Quality testing
-uv run python test_claude_code_quality.py
-
-# Live conversation test
-uv run python live_conversation_test.py
+# Comprehensive tests
+pytest tests/                            # Run all tests
 ```
 
 ### Package Management
@@ -106,19 +116,33 @@ uv lock --upgrade
   - `main.py`: 5 focused functions (was 1 monolithic 188-line function)
 - **Strengths**: Complete control, educational clarity, production-ready
 
-### Version 2: LangGraph
+### Version 2: LangGraph (Base)
 - **Core Pattern**: StateGraph with automatic tool use loop
-- **Key Concept**: Nodes (agent, tools) + Conditional edges (should_continue)
-- **Subagent Implementation**: Independent StateGraph per subagent
+- **Key Features**: Message compression, multi-model support (OpenAI/Claude/Gemini)
 - **Key Files**:
   - `graph.py`: StateGraph construction with custom tool node
-  - `nodes.py`: execute_subagent() creates nested graphs
-- **Strengths**: Visual workflow, automatic state management
+  - `nodes.py`: execute_subagent() creates nested graphs, compact_messages()
+  - `prompts.py`: Centralized prompt management
+  - `models.py`: Model factory pattern for multi-LLM support
+- **Strengths**: Visual workflow, automatic state management, message compression at 100k tokens
+
+### Version 2.1: LangGraph Improved (Latest)
+- **Core Pattern**: Simplified StateGraph with tag-based filtering
+- **Key Improvements**:
+  - Removed `compact_messages()` complexity (273 lines deleted)
+  - Tag + depth-based subagent filtering prevents message corruption
+  - Expanded to 14 tools (background bash, web search/fetch)
+  - EventHandler simplified with `callbacks=[]` pattern
+- **Key Files**:
+  - `main.py`: ~585 lines with LivePanelManager and EventHandler
+  - `tools.py`: 14 tools with improved web and background execution support
+  - `prompts.py`: Enhanced prompts for new tools
+- **Strengths**: Clean message history, more tools, simpler code
 
 ### Version 3: OpenAI Agents SDK
 - **Core Pattern**: Agent + Runner.run() - highest abstraction
 - **Key Concept**: `Agent.as_tool()` converts agents to tools
-- **Strengths**: Minimal code (~280 lines total), SQLiteSession for history
+- **Strengths**: Minimal code (~516 lines total), SQLiteSession for history
 - **Limitation**: OpenAI-only
 
 ### Version 4: Claude Agent SDK (Refactored)
@@ -127,7 +151,7 @@ uv lock --upgrade
 - **Refactoring**: Config separation - moved 72 lines to `config.py`
 - **Key Files**:
   - `config.py`: SUBAGENTS dict with explore/plan/general/statusline agents
-  - `main.py`: ~50 lines of core logic (was ~122 lines before config split)
+  - `main.py`: ~208 lines of core logic (was ~122 lines before config split)
 - **Strengths**: Native MCP, hook system, official Anthropic SDK, preset system prompts
 
 ## Core Concepts
@@ -153,7 +177,9 @@ All versions support 4 subagent types:
 - **Plan**: Implementation planning (outputs plan via ExitPlanMode)
 - **statusline-setup**: Config file editing (Read/Edit only)
 
-### 16 Core Tools
+### 16 Core Tools (v1, v4) / 14 Tools (v2.1)
+
+**All Versions (v1, v4)**:
 - **File**: Read, Write, Edit, NotebookEdit
 - **Search**: Glob (file patterns), Grep (content search)
 - **Execute**: Bash, BashOutput, KillShell
@@ -162,13 +188,23 @@ All versions support 4 subagent types:
 - **External**: WebSearch, WebFetch
 - **Other**: ExitPlanMode, SlashCommand
 
+**v2.1 Specific (14 Tools)**:
+- **File**: read_file, write_file, edit_file
+- **Search**: glob_files, grep_code
+- **Execute**: run_bash, bash_background, bash_output, kill_shell
+- **Agent**: task_tool (launches subagents)
+- **Management**: todo_write
+- **External**: web_search, web_fetch
+
 ## Key Implementation Patterns
 
 ### Version Selection by Use Case
 
 **For learning Claude Code internals**: Use v1 - Every pattern is explicit
 
-**For production multi-agent systems**: Use v2 - StateGraph scales well
+**For production multi-agent systems**: Use v2 or v2.1 - StateGraph scales well
+- v2: Full-featured with message compression
+- v2.1: Simplified, more tools, cleaner code
 
 **For rapid prototyping with OpenAI**: Use v3 - Minimal boilerplate
 
@@ -183,31 +219,44 @@ All versions support 4 subagent types:
 
 ## Working with This Codebase
 
-### Adding a New Tool (v1 example)
+### Adding a New Tool
 
-1. Define Pydantic input model in `types.py`:
+**v1 (OpenAI API Direct)**:
+1. Define Pydantic input model in `types.py`
+2. Implement tool function in `tools.py`
+3. Add to TOOL_REGISTRY in `tools.py`
+4. Add OpenAI schema to TOOLS list
+
+**v2.1 (LangGraph Improved)**:
+1. Define tool function in `tools.py` using `@tool` decorator
+2. Add to TOOLS list for graph registration
+3. Update system prompt in `prompts.py` to guide usage
+
+**v4 (Claude SDK)**:
+1. Define tool in SDK-compatible format
+2. Register in main.py tools list
+
+### Understanding Subagent Message Filtering (v2.1)
+
+The v2.1 implementation uses a critical filtering mechanism to prevent duplicate AIMessages:
+
+**Problem**: `graph.astream_events()` captures ALL nested graph events, including subagent internal messages
+**Solution**: Tag + depth-based filtering in EventHandler
+
 ```python
-class MyToolInput(BaseModel):
-    param1: str
-    param2: int = 0
+# Tag filtering: Main graph has "seq:step:1" or "graph:step:1"
+tags = event.get("tags", [])
+if not any(tag in ["seq:step:1", "graph:step:1"] for tag in tags):
+    return  # Skip subagent events
+
+# Depth tracking: task_tool_depth > 0 means inside subagent
+if self.task_tool_depth > 0:
+    return  # Skip subagent internal messages
 ```
 
-2. Implement tool function in `tools.py`:
-```python
-async def tool_mytool(input_obj: MyToolInput) -> str:
-    # Implementation
-    return result
-```
+This prevents Anthropic API errors: "tool_use without tool_result"
 
-3. Add to TOOL_REGISTRY in `tools.py`:
-```python
-TOOL_REGISTRY = {
-    # ... existing tools
-    "MyTool": (MyToolInput, tool_mytool),
-}
-```
-
-4. Add OpenAI schema to TOOLS list in `tools.py`
+See `docs/05-improvements/SUBAGENT_MESSAGE_FILTERING_FIX.md` for detailed explanation.
 
 ### Modifying Subagent Behavior
 
@@ -216,24 +265,39 @@ TOOL_REGISTRY = {
 
 ### Testing Changes
 
-1. Use `simple_demo.py` for quick manual testing
-2. Use `test_v*_only.py` for automated version testing
-3. Use `launcher.py` for interactive testing
+```bash
+# Interactive testing
+uv run python launcher.py
+
+# Automated version tests
+uv run python test_v2.1_basic.py        # v2.1 basic features
+uv run python test_v2.1_subagents.py    # v2.1 subagent filtering
+
+# Full test suite
+pytest tests/
+```
 
 ## Environment Configuration
 
 Required environment variables in `.env`:
 ```bash
-# For v1, v2, v3 (using OpenAI-compatible endpoint)
+# For v1, v2, v2.1 (using OpenAI-compatible endpoint with Anthropic)
 OPENAI_API_KEY=sk-ant-api03-...
 OPENAI_BASE_URL=https://api.anthropic.com/v1/
+
+# For v3 (actual OpenAI API)
+OPENAI_API_KEY_V3=sk-proj-...
 
 # For v4 (native Claude SDK)
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ANTHROPIC_BASE_URL=https://api.anthropic.com/v1/
 ```
 
-Note: v1-v3 use OpenAI SDK but can point to Claude API via base URL override.
+**Key Points**:
+- v1, v2, v2.1 use OpenAI SDK but point to Anthropic API via base URL override
+- v2/v2.1 support multiple models via `models.py` factory (OpenAI, Claude, Gemini)
+- v3 uses actual OpenAI API (OpenAI-only)
+- v4 uses native Anthropic Claude SDK
 
 ## Documentation Structure
 
@@ -242,12 +306,14 @@ All documentation is in Korean but follows clear patterns:
 - `docs/02-components/`: Detailed component analysis
 - `docs/03-interactions/`: Interaction flow patterns
 - `docs/04-implementation/`: Implementation guides
+- `docs/05-improvements/`: v2.1 improvements and fixes
 
 Key English-readable files:
 - All code files (Python)
 - `pyproject.toml`
 - JSON schemas in `examples/`
 - This CLAUDE.md
+- `docs/05-improvements/SUBAGENT_MESSAGE_FILTERING_FIX.md` (critical for v2.1)
 
 ## Code Style
 
@@ -260,10 +326,11 @@ Key English-readable files:
 ## Important Constraints
 
 1. **Do not modify Korean documentation** without explicit request - it's a reference implementation
-2. **Maintain backward compatibility** - All 4 versions should remain functional
+2. **Maintain backward compatibility** - All 5 versions should remain functional
 3. **Test across versions** - Changes to common patterns should work in all applicable versions
 4. **Preserve system prompt structure** - It mirrors actual Claude Code prompts
 5. **Keep subagent recursion depth limited** - max_depth=5 prevents infinite loops
+6. **v2.1 subagent filtering is critical** - Don't remove tag/depth filtering in EventHandler
 
 ## Performance Considerations
 
@@ -280,18 +347,35 @@ Run `uv sync` to ensure all dependencies are installed
 ### API Key Issues
 Check `.env` file has correct keys for the version being tested
 
-### langchain_openai Missing (v2)
+### Missing Dependencies
 ```bash
-uv add langchain-openai
+# v2/v2.1 LangGraph dependencies
+uv add langchain-openai langchain-anthropic langchain-google-genai
+
+# v2.1 web tools
+uv add httpx beautifulsoup4 ddgs
 ```
 
-### Consecutive AIMessages Error (v2) ✅ FIXED
-If you see "messages: roles must alternate user/assistant" error:
-- **Fixed in latest version** - Subagent events are now filtered to prevent duplicate AIMessages
-- **Root cause**: EventHandler was collecting AIMessages from both main agent and subagents
-- **Solution**: Added tag-based filtering in handle_chat_model_end() to ignore subagent events
-- **Verification**: Run `uv run python test_aimessage_fix.py` to confirm fix
-- See `docs/05-improvements/AIMESSAGE_DUPLICATION_FIX.md` for detailed explanation
+### Consecutive AIMessages Error (v2.1) ✅ FIXED
+If you see "tool_use without tool_result" or "messages: roles must alternate" error:
+- **Fixed in v2.1** - Tag + depth-based filtering prevents duplicate AIMessages
+- **Root cause**: `astream_events()` captures ALL nested graph events including subagents
+- **Solution**: EventHandler filters by tags (`seq:step:1`, `graph:step:1`) and tracks `task_tool_depth`
+- **Verification**: Run `uv run python test_v2.1_subagents.py` to confirm fix
+- See `docs/05-improvements/SUBAGENT_MESSAGE_FILTERING_FIX.md` for detailed explanation
+
+### v2.1 EventHandler Not Filtering Subagents
+Check that these patterns are present in `main.py`:
+```python
+# In handle_chat_model_stream and handle_chat_model_end
+tags = event.get("tags", [])
+if not any(tag in ["seq:step:1", "graph:step:1"] for tag in tags):
+    return  # Critical: Skip subagent events
+
+# In handle_chat_model_end
+if self.task_tool_depth > 0:
+    return  # Critical: Skip messages inside subagent execution
+```
 
 ### Version-Specific Issues
 Check version-specific README.md files for detailed guidance
