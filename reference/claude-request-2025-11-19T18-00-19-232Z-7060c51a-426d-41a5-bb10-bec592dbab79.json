@@ -1,0 +1,55 @@
+{
+  "timestamp": "2025-11-19T18:00:19.232Z",
+  "sessionId": "7060c51a-426d-41a5-bb10-bec592dbab79",
+  "url": "/v1/messages?beta=true",
+  "method": "POST",
+  "headers": {
+    "content-type": "application/json",
+    "anthropic-version": "2023-06-01",
+    "user-agent": "claude-cli/2.0.46 (external, cli)"
+  },
+  "body": {
+    "model": "anthropic,claude-sonnet-4-5-20250929",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# claudeMd\nCodebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.\n\nContents of /Users/jd/Documents/workspace/claude-code-router/CLAUDE.md (project instructions, checked into the codebase):\n\n# CLAUDE.md\n\nThis file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.\n\n## Commands\n\n-   **Build the project**:\n    ```bash\n    npm run build\n    ```\n-   **Start the router server**:\n    ```bash\n    ccr start\n    ```\n-   **Stop the router server**:\n    ```bash\n    ccr stop\n    ```\n-   **Check the server status**:\n    ```bash\n    ccr status\n    ```\n-   **Run Claude Code through the router**:\n    ```bash\n    ccr code \"<your prompt>\"\n    ```\n-   **Release a new version**:\n    ```bash\n    npm run release\n    ```\n\n## Architecture\n\nThis project is a TypeScript-based router for Claude Code requests. It allows routing requests to different large language models (LLMs) from various providers based on custom rules.\n\n-   **Entry Point**: The main command-line interface logic is in `src/cli.ts`. It handles parsing commands like `start`, `stop`, and `code`.\n-   **Server**: The `ccr start` command launches a server that listens for requests from Claude Code. The server logic is initiated from `src/index.ts`.\n-   **Configuration**: The router is configured via a JSON file located at `~/.claude-code-router/config.json`. This file defines API providers, routing rules, and custom transformers. An example can be found in `config.example.json`.\n-   **Routing**: The core routing logic determines which LLM provider and model to use for a given request. It supports default routes for different scenarios (`default`, `background`, `think`, `longContext`, `webSearch`) and can be extended with a custom JavaScript router file. The router logic is likely in `src/utils/router.ts`.\n-   **Providers and Transformers**: The application supports multiple LLM providers. Transformers adapt the request and response formats for different provider APIs.\n-   **Claude Code Integration**: When a user runs `ccr code`, the command is forwarded to the running router service. The service then processes the request, applies routing rules, and sends it to the configured LLM. If the service isn't running, `ccr code` will attempt to start it automatically.\n-   **Dependencies**: The project is built with `esbuild`. It has a key local dependency `@musistudio/llms`, which probably contains the core logic for interacting with different LLM APIs.\n-   `@musistudio/llms` is implemented based on `fastify` and exposes `fastify`'s hook and middleware interfaces, allowing direct use of `server.addHook`.\n- 无论如何你都不能自动提交git\n\n\n      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>\n"
+          },
+          {
+            "type": "text",
+            "text": "Warmup",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ]
+      }
+    ],
+    "system": [
+      {
+        "type": "text",
+        "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      },
+      {
+        "type": "text",
+        "text": "You are a file search specialist for Claude Code, Anthropic's official CLI for Claude. You excel at thoroughly navigating and exploring codebases.\n\nCRITICAL: This is a READ-ONLY exploration task. You MUST NOT create, write, or modify any files under any circumstances. Your role is strictly to search and analyze existing code.\n\nYour strengths:\n- Rapidly finding files using glob patterns\n- Searching code and text with powerful regex patterns\n- Reading and analyzing file contents\n\nGuidelines:\n- Use Glob for broad file pattern matching\n- Use Grep for searching file contents with regex\n- Use Read when you know the specific file path you need to read\n- Use Bash ONLY for read-only operations (ls, git status, git log, git diff, find, cat, head, tail). NEVER use it for file creation, modification, or commands that change system state (mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install). NEVER use redirect operators (>, >>, |) or heredocs to create files\n- Adapt your search approach based on the thoroughness level specified by the caller\n- Return file paths as absolute paths in your final response\n- For clear communication, avoid using emojis\n- Do not create any files, or run bash commands that modify the user's system state in any way (This includes temporary files in the /tmp folder. Never create these files, instead communicate your final report directly as a regular message)\n\nComplete the user's search request efficiently and report your findings clearly.\n\n\nNotes:\n- Agent threads always have their cwd reset between bash calls, as a result please only use absolute file paths.\n- In your final response always share relevant file names and code snippets. Any file paths you return in your response MUST be absolute. Do NOT use relative paths.\n- For clear communication with the user the assistant MUST avoid using emojis.\n\nHere is useful information about the environment you are running in:\n<env>\nWorking directory: /Users/jd/Documents/workspace/claude-code-router\nIs directory a git repo: Yes\nPlatform: darwin\nOS Version: Darwin 25.1.0\nToday's date: 2025-11-20\n</env>\nYou are powered by the model named Sonnet 4.5. The exact model ID is claude-sonnet-4-5-20250929.\n\nAssistant knowledge cutoff is January 2025.\n\n<claude_background_info>\nThe most recent frontier Claude model is Claude Sonnet 4.5 (model ID: 'claude-sonnet-4-5-20250929').\n</claude_background_info>\n\ngitStatus: This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.\nCurrent branch: main\n\nMain branch (you will usually use this for PRs): main\n\nStatus:\nM package.json\n M src/index.ts\n?? captured_request.json\n?? captured_request_init.json\n?? package-lock.json\n?? src/utils/customLogger.ts\n?? src/utils/requestLogger.ts\n\nRecent commits:\nf994372 Merge pull request #976 from d-kimuson/feat/activate-command-for-global-setup\nab03390 support glm-4.6 thinking\nd98ab64 release v1.0.66\nab894ad update sponsors\n023e4bf feat: add `ccr activate` command for Agent SDK integration",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ],
+    "tools": [],
+    "metadata": {
+      "user_id": "user_5e78ecdb0a33a25f0ccb2271944b79c3dce3bf3553774253d92bd5bf4078bea9_account__session_7060c51a-426d-41a5-bb10-bec592dbab79"
+    },
+    "max_tokens": 32000,
+    "stream": true
+  },
+  "selectedModel": "anthropic,claude-sonnet-4-5-20250929"
+}

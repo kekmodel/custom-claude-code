@@ -1,0 +1,42 @@
+{
+  "timestamp": "2025-11-19T17:57:06.513Z",
+  "sessionId": "302b6755-14cc-4802-808c-a59bb184f933",
+  "url": "/v1/messages?beta=true",
+  "method": "POST",
+  "headers": {
+    "content-type": "application/json",
+    "anthropic-version": "2023-06-01",
+    "user-agent": "claude-cli/2.0.46 (external, cli)"
+  },
+  "body": {
+    "model": "anthropic,claude-sonnet-4-5-20250929",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Command: ls -la /Users/jd/Documents/workspace/claude-code-router/ui\nOutput: total 752\ndrwxr-xr-x   20 jd  staff     640 Nov 15 13:34 .\ndrwxr-xr-x   28 jd  staff     896 Nov 19 22:50 ..\n-rw-r--r--    1 jd  staff    1809 Nov 15 01:28 CLAUDE.md\n-rw-r--r--    1 jd  staff     934 Nov 15 01:28 PROJECT.md\n-rw-r--r--    1 jd  staff    2269 Nov 15 01:28 README.md\n-rw-r--r--    1 jd  staff     425 Nov 15 01:28 components.json\n-rw-r--r--    1 jd  staff    3959 Nov 15 01:28 config.example.json\ndrwxr-xr-x    4 jd  staff     128 Nov 15 14:23 dist\n-rw-r--r--    1 jd  staff     610 Nov 15 01:28 eslint.config.js\n-rw-r--r--    1 jd  staff     293 Nov 15 01:28 index.html\ndrwxr-xr-x  195 jd  staff    6240 Nov 15 13:34 node_modules\n-rw-r--r--    1 jd  staff  192917 Nov 15 13:33 package-lock.json\n-rw-r--r--    1 jd  staff    1695 Nov 15 01:28 package.json\n-rw-r--r--    1 jd  staff  137551 Nov 15 01:28 pnpm-lock.yaml\ndrwxr-xr-x    3 jd  staff      96 Nov 15 01:28 public\ndrwxr-xr-x   15 jd  staff     480 Nov 15 01:28 src\n-rw-r--r--    1 jd  staff     597 Nov 15 01:28 tsconfig.app.json\n-rw-r--r--    1 jd  staff     599 Nov 15 01:28 tsconfig.json\n-rw-r--r--    1 jd  staff    1319 Nov 15 14:23 tsconfig.tsbuildinfo\n-rw-r--r--    1 jd  staff     389 Nov 15 01:28 vite.config.ts\n\n"
+          }
+        ]
+      }
+    ],
+    "system": [
+      {
+        "type": "text",
+        "text": "You are a Claude agent, built on Anthropic's Claude Agent SDK."
+      },
+      {
+        "type": "text",
+        "text": "Extract any file paths that this command reads or modifies. For commands like \"git diff\" and \"cat\", include the paths of files being shown. Use paths verbatim -- don't add any slashes or try to resolve them. Do not try to infer paths that were not explicitly listed in the command output.\n\nIMPORTANT: Commands that do not display the contents of the files should not return any filepaths. For eg. \"ls\", pwd\", \"find\". Even more complicated commands that don't display the contents should not be considered: eg \"find . -type f -exec ls -la {} + | sort -k5 -nr | head -5\"\n\nFirst, determine if the command displays the contents of the files. If it does, then <is_displaying_contents> tag should be true. If it does not, then <is_displaying_contents> tag should be false.\n\nFormat your response as:\n<is_displaying_contents>\ntrue\n</is_displaying_contents>\n\n<filepaths>\npath/to/file1\npath/to/file2\n</filepaths>\n\nIf no files are read or modified, return empty filepaths tags:\n<filepaths>\n</filepaths>\n\nDo not include any other text in your response."
+      }
+    ],
+    "tools": [],
+    "metadata": {
+      "user_id": "user_5e78ecdb0a33a25f0ccb2271944b79c3dce3bf3553774253d92bd5bf4078bea9_account__session_302b6755-14cc-4802-808c-a59bb184f933"
+    },
+    "max_tokens": 21333,
+    "temperature": 1
+  },
+  "selectedModel": "anthropic,claude-sonnet-4-5-20250929"
+}
