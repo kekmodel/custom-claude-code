@@ -32,7 +32,7 @@ from rich.spinner import Spinner
 from rich.text import Text
 
 from .graph import graph
-from .hooks import trigger_hook, HookContext
+from .hooks import HookContext, trigger_hook
 
 load_dotenv()
 console = Console()
@@ -57,7 +57,7 @@ class LivePanelManager:
         # 스트리밍 최적화: 청크 배칭
         self.pending_content = ""  # 대기 중인 콘텐츠 버퍼
         self.last_update_time = 0  # 마지막 업데이트 시간
-        self.min_update_interval = 0.15  # 최소 업데이트 간격 (150ms) - Markdown용
+        self.min_update_interval = 0.2  # 최소 업데이트 간격 (200ms) - Markdown용
         self.batch_size = 100  # 배치 크기 (문자 수) - 더 큰 배치
 
     def update_thinking(self, text: str):
@@ -599,10 +599,7 @@ async def run_conversation_loop():
         )
 
         hook_result = await trigger_hook(
-            event="UserPromptSubmit",
-            input_data={"user_input": user_input},
-            tool_use_id=None,
-            context=context
+            event="UserPromptSubmit", input_data={"user_input": user_input}, tool_use_id=None, context=context
         )
 
         # additionalContext를 user_input에 추가
@@ -622,7 +619,7 @@ async def run_conversation_loop():
         #        context=HookContext(session_id="main", turn_count=len(messages))
         #    )
         # 2. Hook에서 보존할 메시지 마킹 가능
-        # 3. 메시지 압축 수행 (RemoveMessage 사용)
+        # 3. 메시지 압축 수행
         # 4. 압축된 메시지로 교체
 
         # 일반 메시지 처리
