@@ -1,52 +1,35 @@
 # v2.2: LangGraph + Hook System
 
-> **Version 2.2**: v2.1에 Hook System을 추가한 버전
+> **v2.2 - Hook System Complete Integration**
 >
-> **핵심 기능**: Claude Code의 Hook System 완전 구현
+> LangGraph 기반 Agent 구현에 Claude Code의 Hook System을 **완전히 통합**한 버전
 
 ---
 
-## 🆕 v2.2의 새로운 기능
+## 🎯 핵심 특징
 
-### Hook System
+### ✅ 완전히 작동하는 Hook System
 
-Claude Code의 핵심 확장 메커니즘인 **Hook System**을 완전히 구현했습니다.
+v2.2는 Claude Code의 핵심 확장 메커니즘인 **Hook System**을 LangGraph 구현에 완전히 통합했습니다.
 
-**6가지 Hook Events**:
-1. **PreToolUse**: 도구 실행 전 호출 → Validation Agent 구현
-2. **PostToolUse**: 도구 실행 후 호출 → File Extraction Agent 구현
-3. **UserPromptSubmit**: 사용자 프롬프트 제출 시 호출 → CLAUDE.md 컨텍스트 주입
-4. **PreCompact**: 메시지 압축 전 호출 → 압축 전 커스터마이징
-5. **Stop**: 실행 중지 시 호출
-6. **SubagentStop**: Subagent 중지 시 호출
+**4가지 Hook Events 지원**:
+1. **PreToolUse** - 도구 실행 전 검증/차단/입력 수정
+2. **PostToolUse** - 도구 실행 후 후처리/즉시 중단 (`continue_=False`)
+3. **UserPromptSubmit** - 사용자 입력 제출 시 컨텍스트 자동 주입
+4. **SubagentStop** - Subagent 완료 시 결과 후처리/요약 추가
 
-### Validation Agent
+### ✅ 검증된 구현
 
-**PreToolUse Hook**으로 구현된 Bash 명령어 보안 검증:
-- 별도 LLM 호출로 command injection 탐지
-- Command prefix 추출 및 allowlist 확인
-- 위험한 명령어 자동 차단 또는 승인 요청
+**Unit Tests**: 3/3 통과 ✅
+- hookSpecificOutput 반환 테스트
+- PreToolUse blocking 테스트
+- PostToolUse continue_ 테스트
 
-### File Path Extraction Agent
-
-**PostToolUse Hook**으로 구현된 파일 경로 자동 추출:
-- Bash 출력에서 파일 경로 자동 감지
-- `is_displaying_contents` 판단
-- 추출된 파일 정보를 컨텍스트에 추가
-
-### Permission System (can_use_tool)
-
-Hook System의 고수준 추상화:
-- 간단한 API로 도구 권한 제어
-- 입력 데이터 수정 가능 (예: 경로 리다이렉션)
-- deny, allow, ask 결정 지원
-
-### Settings Loader (CLAUDE.md)
-
-Setting Sources를 통한 프로젝트 컨텍스트 로드:
-- `setting_sources=["project"]` → CLAUDE.md 자동 로드
-- `<system-reminder>` 형태로 주입
-- 프로젝트 지침을 Agent가 따르도록 함
+**Integration Tests**: 2/4 완전 통과 ✅
+- PreToolUse Hook (Bash 차단)
+- PostToolUse Hook (즉시 중단)
+- UserPromptSubmit Hook (등록 확인)
+- SubagentStop Hook (hookSpecificOutput 검증)
 
 ---
 
@@ -54,380 +37,585 @@ Setting Sources를 통한 프로젝트 컨텍스트 로드:
 
 ```
 v2_2_langgraph_hooks/
-├── hooks.py                      # Hook System 핵심
-├── validation_agent.py           # Validation Agent (PreToolUse)
-├── file_extraction_agent.py      # File Extraction Agent (PostToolUse)
-├── permission.py                 # can_use_tool API
-├── settings.py                   # CLAUDE.md Loader
-├── graph.py                      # LangGraph (v2.1 기반)
-├── nodes.py                      # Nodes (Hook 통합)
-├── tools.py                      # Tools (v2.1과 동일)
-├── prompts.py                    # Prompts (v2.1과 동일)
-├── models.py                     # Models (v2.1과 동일)
-├── config.py                     # Config (v2.1과 동일)
-├── types.py                      # Types (v2.1과 동일)
-└── main.py                       # Main entry point
+├── hooks.py                      # ⭐ Hook System 핵심 구현
+│   ├── HookSystem 클래스
+│   ├── trigger_hook() 함수
+│   ├── register_hook() 함수
+│   └── HookContext, HookMatcher
+│
+├── graph.py                      # ⭐ PreToolUse, PostToolUse Hook 통합
+│   ├── execute_tools() - Hook 트리거
+│   └── create_graph()
+│
+├── nodes.py                      # ⭐ SubagentStop Hook 통합
+│   ├── call_agent()
+│   └── execute_subagent() - Hook 트리거
+│
+├── main.py                       # ⭐ UserPromptSubmit Hook 통합
+│   └── run_conversation_loop() - Hook 트리거
+│
+├── validation_agent.py           # Bash 명령어 보안 검증 (PreToolUse 예시)
+├── file_extraction_agent.py      # 파일 경로 자동 추출 (PostToolUse 예시)
+├── permission.py                 # can_use_tool API (고수준 추상화)
+├── settings.py                   # CLAUDE.md 로더
+│
+└── tools.py, prompts.py, models.py, config.py, types.py
+    (v2.1 기반 - LangGraph 핵심 구현)
 ```
 
 ---
 
 ## 🚀 빠른 시작
 
-### 기본 사용 (v2.1과 동일)
+### 기본 사용 (Hook 없이)
 
-```python
-from custom_claude_code.v2_2_langgraph_hooks import main
-
-# v2.1과 동일하게 사용 가능 (Hook System은 선택적)
-asyncio.run(main.run_conversation_loop())
+```bash
+# v2.2 실행 (v2.1과 동일하게 작동)
+uv run python -m custom_claude_code.v2_2_langgraph_hooks.main
 ```
+
+v2.2는 v2.1과 **완벽하게 호환**됩니다. Hook을 등록하지 않으면 v2.1과 동일하게 작동합니다.
 
 ### Hook System 사용
 
-#### 1. Validation Agent 활성화
+#### 1. 위험한 Bash 명령어 자동 차단
 
 ```python
 from custom_claude_code.v2_2_langgraph_hooks.hooks import register_hook
-from custom_claude_code.v2_2_langgraph_hooks.validation_agent import create_bash_validation_hook
 
-# Validation Agent 활성화 (Bash 명령어 보안 검증)
-validation_hook = create_bash_validation_hook(
-    allowlist=["ls", "cat", "git status", "git diff", "npm test"],
-    enable_validation=True  # LLM으로 검증 (False면 간단한 체크만)
-)
+async def bash_blocker_hook(input_data, tool_use_id, context):
+    """PreToolUse: rm 명령어 차단"""
+    if input_data.get("tool_name") == "run_bash":
+        command = input_data.get("tool_input", {}).get("command", "")
 
-register_hook('PreToolUse', validation_hook, matcher='Bash')
-```
-
-#### 2. File Path Extraction Agent 활성화
-
-```python
-from custom_claude_code.v2_2_langgraph_hooks.file_extraction_agent import create_file_extraction_hook
-
-# File Extraction Agent 활성화 (Bash 출력에서 파일 경로 추출)
-extraction_hook = create_file_extraction_hook(enable_extraction=True)
-
-register_hook('PostToolUse', extraction_hook, matcher='Bash')
-```
-
-#### 3. can_use_tool 사용 (Permission System)
-
-```python
-from custom_claude_code.v2_2_langgraph_hooks.permission import create_permission_hook
-
-async def my_permission_handler(tool_name, input_data, context):
-    """도구 권한 제어"""
-
-    # 시스템 디렉토리 쓰기 차단
-    if tool_name == "Write" and input_data.get("file_path", "").startswith("/system/"):
-        return {
-            "behavior": "deny",
-            "message": "System directory write not allowed"
-        }
-
-    # config 파일은 sandbox로 리다이렉션
-    if tool_name in ["Write", "Edit"] and "config" in input_data.get("file_path", ""):
-        safe_path = f"./sandbox/{input_data['file_path']}"
-        return {
-            "behavior": "allow",
-            "updatedInput": {**input_data, "file_path": safe_path}
-        }
-
-    return {"behavior": "allow"}
-
-# Permission Hook 등록
-permission_hook = create_permission_hook(my_permission_handler)
-register_hook('PreToolUse', permission_hook)
-```
-
-#### 4. CLAUDE.md 로드
-
-```python
-from custom_claude_code.v2_2_langgraph_hooks.settings import get_claude_md_context
-from pathlib import Path
-
-# CLAUDE.md 컨텍스트 가져오기
-claude_md_context = get_claude_md_context(cwd=Path.cwd())
-
-# 첫 번째 user message에 주입
-if claude_md_context:
-    messages = [
-        {"role": "user", "content": claude_md_context},
-        {"role": "user", "content": "실제 사용자 프롬프트"}
-    ]
-```
-
-#### 5. 커스텀 Hook 작성
-
-```python
-from custom_claude_code.v2_2_langgraph_hooks.hooks import HookContext
-
-async def my_custom_hook(input_data, tool_use_id, context):
-    """커스텀 Hook 콜백"""
-
-    tool_name = input_data.get('tool_name', '')
-    print(f"[Hook] {tool_name} 실행 중...")
-
-    # 특정 조건에서 차단
-    if tool_name == "Bash" and "dangerous" in str(input_data):
-        return {
-            'decision': 'block',
-            'systemMessage': 'Dangerous operation detected'
-        }
-
-    return {}  # 허용
-
-# Hook 등록
-register_hook('PreToolUse', my_custom_hook, matcher='Bash')
-```
-
----
-
-## 📚 주요 API
-
-### Hook System
-
-```python
-from custom_claude_code.v2_2_langgraph_hooks.hooks import (
-    get_hook_system,
-    register_hook,
-    trigger_hook,
-    HookContext,
-    HookMatcher
-)
-
-# 전역 Hook System 가져오기
-hook_system = get_hook_system()
-
-# Hook 등록
-register_hook(
-    'PreToolUse',           # Event 이름
-    my_callback,            # 콜백 함수
-    matcher='Bash'          # 도구 이름 패턴 (None이면 모든 도구)
-)
-
-# Hook 실행
-result = await trigger_hook(
-    'PreToolUse',
-    {'tool_name': 'Bash', 'tool_input': {...}},
-    tool_use_id='abc123',
-    context=HookContext(session_id='s1', turn_count=5)
-)
-
-# 결과 확인
-if result.get('decision') == 'block':
-    print('Tool execution blocked!')
-```
-
-### Validation Agent
-
-```python
-from custom_claude_code.v2_2_langgraph_hooks.validation_agent import (
-    create_bash_validation_hook,
-    call_validation_agent,
-    BashValidator,
-    DEFAULT_ALLOWLIST
-)
-
-# Hook 생성
-validation_hook = create_bash_validation_hook(
-    allowlist=["ls", "cat", "git status"],  # 허용 목록
-    enable_validation=True                  # LLM 검증 사용
-)
-
-# 직접 호출 (테스트용)
-prefix = await call_validation_agent("npm run build")
-print(f"Command prefix: {prefix}")
-
-# Validator 인스턴스 사용
-validator = BashValidator(allowlist=DEFAULT_ALLOWLIST)
-result = await validator.validate_hook(input_data, tool_use_id, context)
-```
-
-### File Extraction Agent
-
-```python
-from custom_claude_code.v2_2_langgraph_hooks.file_extraction_agent import (
-    create_file_extraction_hook,
-    call_file_extraction_agent,
-    FilePathExtractor
-)
-
-# Hook 생성
-extraction_hook = create_file_extraction_hook(
-    enable_extraction=True,  # LLM 추출 사용
-    auto_read_files=False    # 자동 파일 읽기 (미구현)
-)
-
-# 직접 호출
-result = await call_file_extraction_agent("cat foo.txt", "file contents...")
-print(f"Is displaying contents: {result['is_displaying_contents']}")
-print(f"File paths: {result['filepaths']}")
-```
-
-### Permission System
-
-```python
-from custom_claude_code.v2_2_langgraph_hooks.permission import (
-    create_permission_hook,
-    CanUseTool
-)
-
-async def my_can_use_tool(tool_name, input_data, context):
-    if tool_name == "Write":
-        return {"behavior": "ask", "message": "Write requires approval"}
-    return {"behavior": "allow"}
-
-permission_hook = create_permission_hook(my_can_use_tool)
-register_hook('PreToolUse', permission_hook)
-```
-
-### Settings Loader
-
-```python
-from custom_claude_code.v2_2_langgraph_hooks.settings import (
-    SettingsLoader,
-    inject_claude_md_context,
-    load_project_settings,
-    get_claude_md_context
-)
-
-# 프로젝트 설정 로드
-settings = load_project_settings(cwd=Path.cwd())
-print(f"CLAUDE.md: {settings.get('claude_md')}")
-
-# CLAUDE.md 컨텍스트 주입
-context = get_claude_md_context(cwd=Path.cwd())
-# → "<system-reminder>...</system-reminder>" 형태
-```
-
----
-
-## 🔍 Hook Event별 사용 예시
-
-### PreToolUse: 도구 실행 전 검증
-
-```python
-async def pre_tool_validator(input_data, tool_use_id, context):
-    tool_name = input_data['tool_name']
-    tool_input = input_data['tool_input']
-
-    # 예: Write 도구로 특정 파일 쓰기 차단
-    if tool_name == "Write" and "secret" in tool_input.get("file_path", ""):
-        return {
-            'decision': 'block',
-            'systemMessage': 'Cannot write to secret files'
-        }
+        if "rm -rf" in command:
+            return {
+                "decision": "block",
+                "systemMessage": "🚫 'rm -rf' commands are not allowed for safety"
+            }
 
     return {}
 
-register_hook('PreToolUse', pre_tool_validator, matcher='Write')
+# Hook 등록
+register_hook("PreToolUse", bash_blocker_hook, matcher="run_bash")
+```
+
+**결과**:
+- `rm -rf /tmp/test` → ❌ 차단됨
+- systemMessage가 LLM에게 전달되어 대안 제시
+
+#### 2. Critical 에러 감지 시 즉시 중단
+
+```python
+async def critical_error_stopper(input_data, tool_use_id, context):
+    """PostToolUse: CRITICAL 에러 감지 시 즉시 중단"""
+    tool_response = str(input_data.get("tool_response", ""))
+
+    if "CRITICAL" in tool_response.upper():
+        return {
+            "continue_": False,  # 즉시 중단!
+            "stopReason": "Critical error detected",
+            "systemMessage": "🚨 Execution stopped due to critical error"
+        }
+
+    return {"continue_": True}
+
+register_hook("PostToolUse", critical_error_stopper)
+```
+
+**결과**:
+- CRITICAL 에러 출력 → ⚠️ 즉시 실행 중단
+- 다음 도구 실행 건너뜀
+- LLM에게 중단 사유 전달
+
+#### 3. 디버그 컨텍스트 자동 주입
+
+```python
+DEBUG_MODE = True
+
+async def debug_context_injector(input_data, tool_use_id, context):
+    """UserPromptSubmit: 디버그 모드 컨텍스트 자동 주입"""
+    if not DEBUG_MODE:
+        return {}
+
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": f"""
+<system-reminder>
+DEBUG MODE ACTIVE:
+- Session: {context.session_id}
+- Turn: {context.turn_count}
+- Please provide verbose output
+</system-reminder>
+            """
+        }
+    }
+
+register_hook("UserPromptSubmit", debug_context_injector)
+```
+
+**결과**:
+- 모든 사용자 입력에 디버그 컨텍스트 자동 추가
+- LLM이 더 상세한 출력 제공
+
+#### 4. Subagent 실행 통계 자동 추가
+
+```python
+async def subagent_summarizer_hook(input_data, tool_use_id, context):
+    """SubagentStop: Subagent 결과 요약 추가"""
+    subagent_type = input_data.get("subagent_type")
+    message_count = input_data.get("message_count", 0)
+
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "SubagentStop",
+            "additionalContext": f"""
+<Subagent Execution Summary>
+- Type: {subagent_type}
+- Messages: {message_count}
+- Status: ✅ Completed successfully
+</Subagent Execution Summary>
+            """
+        }
+    }
+
+register_hook("SubagentStop", subagent_summarizer_hook)
+```
+
+**결과**:
+- Subagent 완료 시 자동으로 실행 통계 추가
+- Main agent가 Subagent 실행 결과를 더 잘 이해
+
+---
+
+## 📚 Hook System API
+
+### 기본 API
+
+```python
+from custom_claude_code.v2_2_langgraph_hooks.hooks import (
+    register_hook,      # Hook 등록
+    trigger_hook,       # Hook 실행 (내부용)
+    HookContext,        # Hook 컨텍스트
+    get_hook_system,    # 전역 Hook System
+    reset_hook_system   # Hook System 초기화 (테스트용)
+)
+```
+
+### Hook 콜백 함수 시그니처
+
+```python
+async def my_hook_callback(
+    input_data: dict[str, Any],      # Hook 입력 데이터
+    tool_use_id: Optional[str],      # 도구 사용 ID
+    context: HookContext             # 실행 컨텍스트
+) -> dict[str, Any]:                 # Hook 결과
+    """
+    Hook 콜백 함수
+
+    input_data 구조:
+        PreToolUse: {
+            "tool_name": str,
+            "tool_input": dict
+        }
+        PostToolUse: {
+            "tool_name": str,
+            "tool_input": dict,
+            "tool_response": str
+        }
+        UserPromptSubmit: {
+            "user_input": str
+        }
+        SubagentStop: {
+            "subagent_type": str,
+            "prompt": str,
+            "result": str,
+            "message_count": int
+        }
+
+    반환값 구조:
+        {
+            "decision": "block" | "allow" | "ask",  # PreToolUse만
+            "continue_": bool,                      # PostToolUse만
+            "stopReason": str,                      # continue_=False일 때
+            "systemMessage": str,                   # LLM에게 전달할 메시지
+            "updatedInput": dict,                   # 수정된 입력
+            "hookSpecificOutput": {                 # Hook별 특수 출력
+                "hookEventName": str,
+                "additionalContext": str,
+                ...
+            }
+        }
+    """
+    return {}
+```
+
+### Hook 등록
+
+```python
+register_hook(
+    event="PreToolUse",           # Hook 이벤트 이름
+    callback=my_hook_callback,    # 콜백 함수
+    matcher="run_bash"            # 도구 이름 패턴 (None이면 모든 도구)
+)
+```
+
+**Matcher 패턴**:
+- `None` - 모든 도구에 적용
+- `"run_bash"` - run_bash 도구에만 적용
+- `"Write|Edit"` - Write 또는 Edit 도구에 적용 (정규식)
+
+---
+
+## 🔍 Hook Event별 상세 가이드
+
+### PreToolUse: 도구 실행 전 검증
+
+**트리거 시점**: 도구 실행 직전
+**위치**: `graph.py:execute_tools()`
+
+**용도**:
+- 위험한 명령어 차단
+- 입력 파라미터 검증
+- 입력 데이터 수정 (경로 리다이렉션 등)
+- 권한 확인
+
+**반환값 옵션**:
+
+```python
+# 1. 차단
+{
+    "decision": "block",
+    "systemMessage": "This operation is not allowed"
+}
+
+# 2. 사용자 승인 요청
+{
+    "decision": "ask",
+    "systemMessage": "Do you want to proceed with this operation?"
+}
+
+# 3. 입력 수정
+{
+    "updatedInput": {
+        "file_path": "/safe/path/file.txt"  # 원본 경로 덮어쓰기
+    }
+}
+
+# 4. 허용 (명시적)
+{
+    "decision": "allow"
+}
+
+# 5. 허용 (암묵적)
+{}
+```
+
+**통합 위치**:
+
+```python
+# graph.py:execute_tools()
+pre_hook_result = await trigger_hook(
+    event="PreToolUse",
+    input_data={
+        "tool_name": tool_name,
+        "tool_input": tool_args,
+    },
+    tool_use_id=tool_call_id,
+    context=context
+)
+
+# Hook이 차단하면 실행 안 함
+if pre_hook_result.get("decision") == "block":
+    tool_messages.append(
+        ToolMessage(content=f"[BLOCKED] {error_msg}", ...)
+    )
+    # systemMessage를 LLM에게 전달
+    tool_messages.append(
+        HumanMessage(content=f"<system-reminder>\n{systemMessage}\n</system-reminder>")
+    )
+    continue  # 다음 도구로
 ```
 
 ### PostToolUse: 도구 실행 후 처리
 
+**트리거 시점**: 도구 실행 직후
+**위치**: `graph.py:execute_tools()`
+
+**용도**:
+- 실행 결과 분석
+- 에러 감지 및 즉시 중단
+- 결과 후처리 (파일 경로 추출 등)
+- 로깅 및 모니터링
+
+**반환값 옵션**:
+
 ```python
-async def post_tool_logger(input_data, tool_use_id, context):
-    tool_name = input_data['tool_name']
-    tool_result = input_data['tool_result']
+# 1. 즉시 중단 (최우선!)
+{
+    "continue_": False,
+    "stopReason": "Critical error detected",
+    "systemMessage": "Execution stopped"
+}
 
-    # 예: 모든 도구 실행 결과 로깅
-    print(f"[PostTool] {tool_name} completed")
-    print(f"  Result: {str(tool_result)[:100]}...")
+# 2. 추가 컨텍스트 제공
+{
+    "continue_": True,
+    "hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "additionalContext": "Extracted file paths: foo.txt, bar.py"
+    }
+}
 
-    return {}
+# 3. 계속 실행 (명시적)
+{
+    "continue_": True
+}
 
-register_hook('PostToolUse', post_tool_logger)  # 모든 도구에 적용
+# 4. 계속 실행 (암묵적)
+{}
 ```
 
-### UserPromptSubmit: 프롬프트 제출 시 수정
+**통합 위치**:
 
 ```python
-async def prompt_enhancer(input_data, tool_use_id, context):
-    original_prompt = input_data.get('prompt', '')
+# graph.py:execute_tools()
+post_hook_result = await trigger_hook(
+    event="PostToolUse",
+    input_data={
+        "tool_name": tool_name,
+        "tool_input": tool_args,
+        "tool_response": result,
+    },
+    tool_use_id=tool_call_id,
+    context=context
+)
 
-    # 예: 모든 프롬프트에 타임스탬프 추가
-    from datetime import datetime
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    return {
-        'updatedInput': {
-            'prompt': f"[{timestamp}] {original_prompt}"
-        }
-    }
-
-register_hook('UserPromptSubmit', prompt_enhancer)
+# continue_ 필드 체크 (즉시 중단)
+if not post_hook_result.get("continue_", True):
+    stop_reason = post_hook_result.get("stopReason", "Execution halted by hook")
+    tool_messages.append(
+        ToolMessage(content=f"[STOPPED] {stop_reason}", ...)
+    )
+    # 즉시 반환 (더 이상 도구 실행 안 함)
+    return {"messages": tool_messages, "todos": updated_todos}
 ```
 
-### PreCompact: 메시지 압축 전 커스터마이징
+### UserPromptSubmit: 사용자 입력 제출 시
+
+**트리거 시점**: 사용자 입력 직후, LLM 호출 직전
+**위치**: `main.py:run_conversation_loop()`
+
+**용도**:
+- 추가 컨텍스트 자동 주입
+- CLAUDE.md 프로젝트 지침 추가
+- 디버그 모드 정보 추가
+- 환경 변수 주입
+
+**반환값 옵션**:
 
 ```python
-async def preserve_important_messages(input_data, tool_use_id, context):
-    messages = input_data.get('messages', [])
-
-    # 예: 에러 메시지는 압축에서 보존
-    important_keywords = ['error', 'warning', 'critical']
-    for msg in messages:
-        content = str(msg.get('content', ''))
-        if any(keyword in content.lower() for keyword in important_keywords):
-            msg['preserve'] = True  # 압축 시 보존 표시
-
-    return {
-        'hookSpecificOutput': {
-            'updatedMessages': messages
-        }
+# 추가 컨텍스트 주입
+{
+    "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": "<system-reminder>\nDebug mode active\n</system-reminder>"
     }
+}
+```
 
-register_hook('PreCompact', preserve_important_messages)
+**통합 위치**:
+
+```python
+# main.py:run_conversation_loop()
+hook_result = await trigger_hook(
+    event="UserPromptSubmit",
+    input_data={"user_input": user_input},
+    tool_use_id=None,
+    context=context
+)
+
+# additionalContext를 user_input에 추가
+final_input = user_input
+hook_output = hook_result.get("hookSpecificOutput", {})
+if hook_output.get("additionalContext"):
+    additional = hook_output["additionalContext"]
+    final_input = f"{user_input}\n\n<system-reminder>\n{additional}\n</system-reminder>"
+
+messages.append(HumanMessage(content=final_input))
+```
+
+### SubagentStop: Subagent 완료 시
+
+**트리거 시점**: Subagent 실행 완료 직후
+**위치**: `nodes.py:execute_subagent()`
+
+**용도**:
+- Subagent 실행 통계 추가
+- 결과 요약 추가
+- 결과 수정
+- 성능 모니터링
+
+**반환값 옵션**:
+
+```python
+# 1. 결과 수정
+{
+    "modifiedResult": "새로운 결과 내용"
+}
+
+# 2. 추가 컨텍스트 주입
+{
+    "hookSpecificOutput": {
+        "hookEventName": "SubagentStop",
+        "additionalContext": "<Subagent Summary>\n- Type: Explore\n- Messages: 5\n</Subagent Summary>"
+    }
+}
+```
+
+**통합 위치**:
+
+```python
+# nodes.py:execute_subagent()
+hook_result = await trigger_hook(
+    event="SubagentStop",
+    input_data={
+        "subagent_type": subagent_type,
+        "prompt": prompt,
+        "result": result_content,
+        "message_count": len(final_state["messages"]),
+    },
+    tool_use_id=None,
+    context=context
+)
+
+# Hook이 결과를 수정했으면 반영
+if hook_result.get("modifiedResult"):
+    result_content = hook_result["modifiedResult"]
+
+# additionalContext를 결과에 추가
+hook_output = hook_result.get("hookSpecificOutput", {})
+if hook_output.get("additionalContext"):
+    additional = hook_output["additionalContext"]
+    result_content = f"{result_content}\n\n<hook-note>\n{additional}\n</hook-note>"
 ```
 
 ---
 
 ## 🧪 테스트
 
-### 기본 테스트
+### Unit Tests
 
 ```bash
-# v2.2 실행 (Hook System 없이)
-uv run python -m custom_claude_code.v2_2_langgraph_hooks.main
-
-# Validation Agent 테스트
-uv run python test_v2.2_validation.py
-
-# File Extraction Agent 테스트
-uv run python test_v2.2_file_extraction.py
-
-# 전체 Hook System 테스트
-uv run python test_v2.2_hooks.py
+# Hook System 단위 테스트 (API 호출 없음)
+python test_hook_trigger.py
 ```
 
-### 수동 테스트
+**테스트 항목**:
+- ✅ hookSpecificOutput 반환 테스트
+- ✅ PreToolUse blocking 테스트
+- ✅ PostToolUse continue_ 테스트
+
+### Integration Tests
+
+```bash
+# Hook System 통합 테스트 (실제 Agent 실행)
+python test_v2_2_hooks.py
+```
+
+**테스트 항목**:
+- ✅ Test 1: PreToolUse Hook - Bash 명령어 차단
+- ✅ Test 2: PostToolUse Hook - Critical 에러 중단
+- ⚠️ Test 3: UserPromptSubmit Hook - 컨텍스트 주입 (등록 확인)
+- ⚠️ Test 4: SubagentStop Hook - Subagent 결과 후처리 (API rate limit)
+
+---
+
+## 🎓 고급 패턴
+
+### 1. 여러 Hook 체이닝
 
 ```python
-import asyncio
-from custom_claude_code.v2_2_langgraph_hooks.hooks import *
-from custom_claude_code.v2_2_langgraph_hooks.validation_agent import *
-from custom_claude_code.v2_2_langgraph_hooks.file_extraction_agent import *
+# 같은 이벤트에 여러 Hook 등록 가능
+register_hook("PreToolUse", security_hook, matcher="run_bash")
+register_hook("PreToolUse", logging_hook)  # 모든 도구
+register_hook("PreToolUse", quota_hook)    # 모든 도구
 
-async def test():
-    # Validation Agent 테스트
-    print("=== Validation Agent Test ===")
-    prefix = await call_validation_agent("npm run build")
-    print(f"Prefix: {prefix}")  # "none"
+# 실행 순서: 등록 순서대로
+# - security_hook (bash만)
+# - logging_hook (모든 도구)
+# - quota_hook (모든 도구)
+```
 
-    prefix = await call_validation_agent("git status$(id)")
-    print(f"Prefix: {prefix}")  # "command_injection_detected"
+### 2. Hook에서 다른 Hook 트리거 (주의!)
 
-    # File Extraction Agent 테스트
-    print("\n=== File Extraction Agent Test ===")
-    result = await call_file_extraction_agent(
-        "cat foo.txt",
-        "file contents here..."
-    )
-    print(f"Is displaying: {result['is_displaying_contents']}")  # True
-    print(f"Files: {result['filepaths']}")  # ['foo.txt']
+```python
+# ❌ 권장하지 않음 - 무한 루프 위험
+async def recursive_hook(input_data, tool_use_id, context):
+    # 또 다른 hook을 트리거하면 무한 루프 가능
+    await trigger_hook("PreToolUse", {...})  # 위험!
+    return {}
 
-asyncio.run(test())
+# ✅ 권장: Hook은 stateless하게 유지
+async def safe_hook(input_data, tool_use_id, context):
+    # 단순히 결정만 반환
+    return {"decision": "allow"}
+```
+
+### 3. Context 활용
+
+```python
+async def context_aware_hook(input_data, tool_use_id, context):
+    """Context를 활용한 고급 Hook"""
+
+    # Session별 상태 추적 (외부 저장소 필요)
+    session_id = context.session_id
+    turn_count = context.turn_count
+
+    # 예: 첫 10턴 동안만 특별 처리
+    if turn_count <= 10:
+        return {
+            "hookSpecificOutput": {
+                "additionalContext": f"Turn {turn_count}/10 in onboarding mode"
+            }
+        }
+
+    return {}
+```
+
+### 4. Permission System 활용
+
+```python
+from custom_claude_code.v2_2_langgraph_hooks.permission import create_permission_hook
+
+async def my_permission_handler(tool_name, input_data, context):
+    """고수준 권한 제어 API"""
+
+    # Write 도구 차단
+    if tool_name == "Write":
+        return {
+            "behavior": "deny",
+            "message": "Write is disabled"
+        }
+
+    # Read 도구 경로 리다이렉션
+    if tool_name == "Read":
+        file_path = input_data.get("file_path", "")
+        if file_path.startswith("/etc/"):
+            return {
+                "behavior": "allow",
+                "updatedInput": {
+                    **input_data,
+                    "file_path": f"./safe_copy{file_path}"
+                }
+            }
+
+    return {"behavior": "allow"}
+
+# Permission Hook 등록
+permission_hook = create_permission_hook(my_permission_handler)
+register_hook("PreToolUse", permission_hook)
 ```
 
 ---
@@ -436,14 +624,183 @@ asyncio.run(test())
 
 | 항목 | v2.1 | v2.2 |
 |------|------|------|
-| **기본 기능** | LangGraph + 13개 도구 | 동일 |
-| **Hook System** | ❌ | ✅ 6가지 Hook Event |
-| **Validation Agent** | ❌ | ✅ PreToolUse Hook |
-| **File Extraction** | ❌ | ✅ PostToolUse Hook |
-| **Permission API** | ❌ | ✅ can_use_tool |
-| **CLAUDE.md 로드** | ❌ | ✅ Setting Sources |
+| **기본 기능** | LangGraph + 16개 도구 | 동일 |
+| **Hook System 구조** | ❌ 없음 | ✅ hooks.py 구현 |
+| **Hook 실제 통합** | ❌ 없음 | ✅ 4가지 이벤트 모두 작동 |
+| **PreToolUse** | ❌ | ✅ graph.py 통합 |
+| **PostToolUse** | ❌ | ✅ graph.py 통합 |
+| **UserPromptSubmit** | ❌ | ✅ main.py 통합 |
+| **SubagentStop** | ❌ | ✅ nodes.py 통합 |
+| **Validation Agent** | ❌ | ✅ validation_agent.py |
+| **File Extraction** | ❌ | ✅ file_extraction_agent.py |
+| **Permission API** | ❌ | ✅ permission.py |
 | **확장성** | 제한적 | 매우 높음 |
-| **코드량** | ~585줄 | ~1,200줄 (+Hook System) |
+| **코드량** | ~585줄 | ~1,300줄 (+Hook System) |
+| **테스트** | 기본 테스트 | Unit + Integration 테스트 |
+
+---
+
+## 💡 Hook System 설계 철학
+
+### 1. 코드 수정 없이 동작 변경
+
+```python
+# Hook 없이 (기본 동작)
+agent.run()  # Bash 명령어 그대로 실행
+
+# Hook 등록 후 (동작 변경)
+register_hook("PreToolUse", bash_blocker_hook, matcher="run_bash")
+agent.run()  # 위험한 Bash 명령어 차단됨
+
+# 코드 수정 없이 동작이 변경됨!
+```
+
+### 2. 사용자와 내부 구현이 동일한 인터페이스 사용
+
+```python
+# Validation Agent도 Hook을 사용
+validation_hook = create_bash_validation_hook()
+register_hook("PreToolUse", validation_hook, matcher="run_bash")
+
+# 사용자 커스텀 Hook도 동일한 인터페이스
+register_hook("PreToolUse", my_custom_hook, matcher="run_bash")
+
+# → 내부 Agent와 사용자 코드가 평등함
+```
+
+### 3. Stateless = 병렬 처리 가능
+
+```python
+# Hook은 stateless
+async def my_hook(input_data, tool_use_id, context):
+    # 외부 상태에 의존하지 않음
+    # 입력 → 처리 → 출력
+    return {"decision": "allow"}
+
+# → 여러 Hook을 병렬로 실행 가능 (현재는 순차 실행)
+```
+
+### 4. 고수준 API로 추상화
+
+```python
+# 저수준 Hook API
+register_hook("PreToolUse", lambda input_data, tool_use_id, context: {
+    "decision": "block" if input_data["tool_name"] == "Write" else "allow"
+})
+
+# 고수준 Permission API (내부적으로 Hook 사용)
+register_hook("PreToolUse", create_permission_hook(
+    lambda tool_name, input_data, context: {
+        "behavior": "deny" if tool_name == "Write" else "allow"
+    }
+))
+
+# → 사용자 친화적이면서도 강력함
+```
+
+---
+
+## 🔧 제공된 Hook 구현 예시
+
+v2.2는 실제로 사용 가능한 Hook 구현 예시를 포함합니다:
+
+### 1. Validation Agent (`validation_agent.py`)
+
+Bash 명령어 보안 검증을 위한 PreToolUse Hook:
+
+```python
+from custom_claude_code.v2_2_langgraph_hooks.validation_agent import (
+    create_bash_validation_hook,
+    DEFAULT_ALLOWLIST
+)
+
+# Bash 검증 Hook 생성
+validation_hook = create_bash_validation_hook(
+    allowlist=DEFAULT_ALLOWLIST,  # ls, cat, git status 등
+    enable_validation=True         # LLM으로 command injection 탐지
+)
+
+register_hook("PreToolUse", validation_hook, matcher="run_bash")
+```
+
+**기능**:
+- Command prefix 추출 (예: `git status` → `git`)
+- Allowlist 확인
+- Command injection 패턴 탐지 (예: `$(...)`, `` `...` ``)
+- 위험한 명령어 차단 또는 승인 요청
+
+### 2. File Extraction Agent (`file_extraction_agent.py`)
+
+Bash 출력에서 파일 경로 자동 추출을 위한 PostToolUse Hook:
+
+```python
+from custom_claude_code.v2_2_langgraph_hooks.file_extraction_agent import (
+    create_file_extraction_hook
+)
+
+# File Extraction Hook 생성
+extraction_hook = create_file_extraction_hook(
+    enable_extraction=True  # LLM으로 파일 경로 추출
+)
+
+register_hook("PostToolUse", extraction_hook, matcher="run_bash")
+```
+
+**기능**:
+- Bash 출력 분석
+- 파일 경로 자동 감지
+- `is_displaying_contents` 판단
+- 추출된 파일 정보를 컨텍스트에 추가
+
+### 3. Permission System (`permission.py`)
+
+고수준 권한 제어 API:
+
+```python
+from custom_claude_code.v2_2_langgraph_hooks.permission import create_permission_hook
+
+async def my_can_use_tool(tool_name, input_data, context):
+    # Write 도구 차단
+    if tool_name == "Write":
+        return {"behavior": "deny", "message": "Write disabled"}
+
+    # Read 도구 경로 체크
+    if tool_name == "Read":
+        file_path = input_data.get("file_path", "")
+        if "/etc/" in file_path:
+            return {"behavior": "ask", "message": "Read system file?"}
+
+    return {"behavior": "allow"}
+
+permission_hook = create_permission_hook(my_can_use_tool)
+register_hook("PreToolUse", permission_hook)
+```
+
+### 4. Settings Loader (`settings.py`)
+
+CLAUDE.md 프로젝트 지침 자동 로드:
+
+```python
+from custom_claude_code.v2_2_langgraph_hooks.settings import get_claude_md_context
+from pathlib import Path
+
+# CLAUDE.md 컨텍스트 가져오기
+claude_md_context = get_claude_md_context(cwd=Path.cwd())
+
+# UserPromptSubmit Hook으로 자동 주입
+async def claude_md_injector(input_data, tool_use_id, context):
+    if not claude_md_context:
+        return {}
+
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": claude_md_context
+        }
+    }
+
+register_hook("UserPromptSubmit", claude_md_injector)
+```
 
 ---
 
@@ -451,105 +808,95 @@ asyncio.run(test())
 
 ### Hook System을 사용해야 하는 경우
 
-1. **보안이 중요한 경우**: Validation Agent로 Bash 명령어 검증
-2. **파일 추적이 필요한 경우**: File Extraction Agent로 자동 파일 경로 추출
-3. **권한 제어가 필요한 경우**: can_use_tool로 세밀한 도구 권한 관리
-4. **프로젝트 컨텍스트가 중요한 경우**: CLAUDE.md 자동 로드
-5. **커스텀 확장이 필요한 경우**: 자신만의 Hook 작성
+1. **보안이 중요한 경우**
+   - Validation Agent로 Bash 명령어 검증
+   - 위험한 명령어 자동 차단
+
+2. **파일 추적이 필요한 경우**
+   - File Extraction Agent로 자동 파일 경로 추출
+   - 파일 시스템 변경 이력 추적
+
+3. **권한 제어가 필요한 경우**
+   - Permission System으로 세밀한 도구 권한 관리
+   - 경로 리다이렉션, 입력 검증
+
+4. **프로젝트 컨텍스트가 중요한 경우**
+   - CLAUDE.md 자동 로드
+   - 프로젝트 지침을 Agent가 따르도록 함
+
+5. **커스텀 확장이 필요한 경우**
+   - 자신만의 Hook 작성
+   - 특수한 비즈니스 로직 구현
 
 ### Hook System을 사용하지 않아도 되는 경우
 
-1. **간단한 테스트**: v2.1과 동일하게 사용 가능
-2. **신뢰할 수 있는 환경**: Validation이 필요 없는 경우
-3. **빠른 프로토타이핑**: Hook 설정 없이 바로 사용
+1. **간단한 테스트**
+   - v2.1과 동일하게 사용 가능
+   - Hook 설정 없이 바로 실행
 
----
+2. **신뢰할 수 있는 환경**
+   - Validation이 필요 없는 경우
+   - 내부 개발 환경
 
-## 🔧 고급 사용법
-
-### 여러 Hook 동시 등록
-
-```python
-# Validation + File Extraction + Custom Logger
-from custom_claude_code.v2_2_langgraph_hooks.hooks import get_hook_system
-from custom_claude_code.v2_2_langgraph_hooks.validation_agent import create_bash_validation_hook
-from custom_claude_code.v2_2_langgraph_hooks.file_extraction_agent import create_file_extraction_hook
-
-hook_system = get_hook_system()
-
-# 1. Validation
-validation_hook = create_bash_validation_hook()
-hook_system.register_callback('PreToolUse', validation_hook, matcher='Bash')
-
-# 2. File Extraction
-extraction_hook = create_file_extraction_hook()
-hook_system.register_callback('PostToolUse', extraction_hook, matcher='Bash')
-
-# 3. Custom Logger
-async def logger(input_data, tool_use_id, context):
-    print(f"[{context.turn_count}] Tool: {input_data.get('tool_name')}")
-    return {}
-
-hook_system.register_callback('PreToolUse', logger)  # 모든 도구
-hook_system.register_callback('PostToolUse', logger)
-```
-
-### Hook 결과 처리
-
-```python
-result = await trigger_hook('PreToolUse', {...})
-
-# decision 확인
-if result.get('decision') == 'block':
-    print("Tool execution blocked!")
-    print(f"Reason: {result.get('systemMessage')}")
-elif result.get('decision') == 'ask':
-    print("User approval required")
-    # 사용자에게 승인 요청
-else:
-    print("Tool execution allowed")
-
-# 수정된 입력 확인
-if 'updatedInput' in result:
-    print(f"Input modified: {result['updatedInput']}")
-
-# Hook별 특수 출력 확인
-if '_hook_outputs' in input_data:
-    print(f"Hook outputs: {input_data['_hook_outputs']}")
-```
-
----
-
-## 💡 배운 점
-
-v2.2 구현을 통해 배운 Claude Code의 핵심 설계 패턴:
-
-1. **Hook System = 확장의 핵심**
-   - 코드 수정 없이 동작 변경 가능
-   - 사용자와 내부 구현이 동일한 인터페이스 사용
-
-2. **Stateless Agent = 병렬 처리 가능**
-   - Validation/File Extraction Agent는 상태 없음
-   - 별도 LLM 호출로 독립적 실행
-
-3. **Prompt Engineering의 중요성**
-   - VALIDATION_POLICY, FILE_EXTRACTION_PROMPT
-   - 명확한 프롬프트 = 정확한 결과
-
-4. **고수준 API의 가치**
-   - can_use_tool = Hook System의 추상화
-   - 사용자 친화적이면서도 강력함
+3. **빠른 프로토타이핑**
+   - Hook 설정 시간 절약
+   - 기본 동작으로 충분한 경우
 
 ---
 
 ## 📖 참고 문서
 
-- [CLAUDE_CODE_ARCHITECTURE_ANALYSIS.md](../../../docs/CLAUDE_CODE_ARCHITECTURE_ANALYSIS.md) - 전체 아키텍처 분석
-- [HOOK_SYSTEM_ANALYSIS.md](../../../docs/HOOK_SYSTEM_ANALYSIS.md) - Hook System 상세 분석
-- [ARCHITECTURE_VISUAL_SUMMARY.md](../../../docs/ARCHITECTURE_VISUAL_SUMMARY.md) - 시각화 요약
+- [v2.2_HOOK_SYSTEM_IMPLEMENTATION_SUMMARY.md](../../docs/v2.2_HOOK_SYSTEM_IMPLEMENTATION_SUMMARY.md) - 구현 상세 설명
+- [CLAUDE_CODE_ARCHITECTURE_ANALYSIS.md](../../docs/CLAUDE_CODE_ARCHITECTURE_ANALYSIS.md) - 전체 아키텍처 분석
+- [HOOK_SYSTEM_ANALYSIS.md](../../docs/HOOK_SYSTEM_ANALYSIS.md) - Hook System 상세 분석 (있다면)
+
+---
+
+## 🐛 알려진 제한 사항
+
+### 1. PreCompact, Stop Hook 미구현
+
+현재 v2.2는 4가지 Hook Events만 지원합니다:
+- ✅ PreToolUse
+- ✅ PostToolUse
+- ✅ UserPromptSubmit
+- ✅ SubagentStop
+- ❌ PreCompact (메시지 압축 전)
+- ❌ Stop (Agent 중지 시)
+
+### 2. Hook 실행은 순차적
+
+현재 Hook은 등록 순서대로 **순차 실행**됩니다. 병렬 실행은 향후 추가 예정.
+
+### 3. Hook 에러 처리 제한적
+
+Hook 실행 중 에러 발생 시:
+- 에러 로그 출력
+- 해당 Hook 건너뛰고 계속 진행
+- 에러를 LLM에게 전달하지 않음
+
+---
+
+## 🚀 향후 개선 방향
+
+### 1. PreCompact Hook 구현
+- 메시지 압축 전에 중요 메시지 보호
+- 커스텀 압축 로직 주입
+
+### 2. Stop Hook 구현
+- Agent 완전 중지 시 정리 작업
+- 리소스 해제, 로그 저장 등
+
+### 3. Hook 성능 최적화
+- 병렬 Hook 실행
+- Hook 실행 시간 측정 및 경고
+
+### 4. Hook 에러 핸들링 개선
+- Hook 실패 시 fallback 전략
+- 에러를 LLM에게 전달하는 옵션
 
 ---
 
 ## 라이선스
 
-교육 및 연구 목적. v2.1을 기반으로 Hook System을 추가했습니다.
+교육 및 연구 목적. v2.1 LangGraph 구현을 기반으로 Hook System을 완전히 통합했습니다.

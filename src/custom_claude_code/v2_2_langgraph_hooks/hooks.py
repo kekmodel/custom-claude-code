@@ -4,13 +4,15 @@ Hook System for v2.2
 Hook System은 Claude Code의 핵심 확장 메커니즘입니다.
 다양한 이벤트에 대해 콜백을 등록하여 동작을 커스터마이징할 수 있습니다.
 
-지원하는 Hook Events:
-- PreToolUse: 도구 실행 전 호출
-- PostToolUse: 도구 실행 후 호출
-- UserPromptSubmit: 사용자 프롬프트 제출 시 호출
-- PreCompact: 메시지 압축 전 호출
-- Stop: 실행 중지 시 호출
-- SubagentStop: Subagent 중지 시 호출
+✅ 구현된 Hook Events (4개):
+- PreToolUse: 도구 실행 전 호출 (graph.py:execute_tools)
+- PostToolUse: 도구 실행 후 호출 (graph.py:execute_tools)
+- UserPromptSubmit: 사용자 프롬프트 제출 시 호출 (main.py:run_conversation_loop)
+- SubagentStop: Subagent 중지 시 호출 (nodes.py:execute_subagent)
+
+❌ 미구현 Hook Events (2개):
+- PreCompact: 메시지 압축 전 호출 (향후 구현 예정)
+- Stop: 실행 중지 시 호출 (향후 구현 예정)
 """
 
 from dataclasses import dataclass, field
@@ -162,6 +164,8 @@ class HookSystem:
         Returns:
             dict: Hook 실행 결과
                 - decision: "block" | "allow" | "ask" (선택적)
+                - continue_: bool (선택적, PostToolUse에서 사용)
+                - stopReason: str (선택적, continue_=False일 때)
                 - systemMessage: 시스템 메시지 (선택적)
                 - hookSpecificOutput: Hook별 특수 출력 (선택적)
                 - updatedInput: 수정된 입력 데이터 (선택적)
@@ -170,6 +174,9 @@ class HookSystem:
             context = HookContext()
 
         tool_name = input_data.get('tool_name', '')
+
+        # 결과 누적을 위한 변수
+        accumulated_result = {}
 
         # 등록된 모든 matchers를 순회
         for matcher in self.hooks.get(event, []):
@@ -182,6 +189,10 @@ class HookSystem:
                 try:
                     result = await callback(input_data, tool_use_id, context)
 
+                    # continue_=False 즉시 반환 (최우선!)
+                    if 'continue_' in result and not result['continue_']:
+                        return result
+
                     # block 결정이 있으면 즉시 반환
                     if result.get('decision') == 'block':
                         return result
@@ -193,6 +204,7 @@ class HookSystem:
                     # 입력 데이터 업데이트 (다음 hook으로 전달)
                     if 'updatedInput' in result:
                         input_data.update(result['updatedInput'])
+                        accumulated_result['updatedInput'] = result['updatedInput']
 
                     # Hook별 특수 출력 처리
                     if 'hookSpecificOutput' in result:
@@ -200,13 +212,15 @@ class HookSystem:
                         hook_output = result['hookSpecificOutput']
                         if isinstance(hook_output, dict):
                             input_data.setdefault('_hook_outputs', []).append(hook_output)
+                            # 최종 결과에도 포함 (마지막 hook의 것이 우선)
+                            accumulated_result['hookSpecificOutput'] = hook_output
 
                 except Exception as e:
                     # Hook 실행 중 오류 발생 시 로깅하고 계속 진행
                     print(f"[Hook Error] {event} hook failed: {type(e).__name__}: {str(e)}")
                     continue
 
-        return {}  # 모든 hook 통과
+        return accumulated_result  # 모든 hook 통과, 누적된 결과 반환
 
     def has_hooks(self, event: HookEvent) -> bool:
         """특정 이벤트에 등록된 hook이 있는지 확인"""

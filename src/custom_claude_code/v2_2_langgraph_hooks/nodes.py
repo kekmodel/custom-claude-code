@@ -1,10 +1,10 @@
 """
 v2.2: LangGraph Nodes with Hook System
 
-v2.1의 간결함 유지 + Hook 통합:
+v2.1의 간결함 유지 + Hook 완전 통합:
 - Subagent 실행 시 독립 StateGraph 생성
 - Tag 기반 이벤트 필터링
-- Hook System과 통합 가능한 구조
+- SubagentStop Hook 완전히 통합됨
 - 더 간결하고 명확한 코드
 """
 
@@ -70,12 +70,13 @@ async def execute_subagent(
     model_name: str = "claude-haiku-4-5",
 ) -> str:
     """
-    독립 StateGraph로 Subagent 실행
+    독립 StateGraph로 Subagent 실행 (SubagentStop Hook 통합)
 
     도구 제한: Explore (읽기 전용), Plan (읽기만), general (전체)
     공통 제외: task_tool, todo_write
     """
     from langchain_core.runnables import RunnableConfig
+    from .hooks import trigger_hook, HookContext
 
     if current_depth >= max_depth:
         return f"[ERROR] Max subagent depth ({max_depth}) exceeded"
@@ -146,12 +147,42 @@ async def execute_subagent(
         # callbacks=[] 로 subagent 이벤트가 main graph로 전파되는 것 방지
         final_state = await subagent_graph.ainvoke(initial_state, config=RunnableConfig(callbacks=[]))
 
+        # Subagent 결과 추출
+        result_content = "(no response)"
         if final_state["messages"]:
             last_msg = final_state["messages"][-1]
             if isinstance(last_msg, AIMessage):
-                return last_msg.content or "(no response)"
+                result_content = last_msg.content or "(no response)"
 
-        return "(no response)"
+        # SubagentStop Hook 트리거
+        context = HookContext(
+            turn_count=len(final_state["messages"]),
+            extra={"subagent_type": subagent_type, "depth": current_depth + 1}
+        )
+
+        hook_result = await trigger_hook(
+            event="SubagentStop",
+            input_data={
+                "subagent_type": subagent_type,
+                "prompt": prompt,
+                "result": result_content,
+                "message_count": len(final_state["messages"]),
+            },
+            tool_use_id=None,
+            context=context
+        )
+
+        # Hook이 결과를 수정했으면 반영
+        if hook_result.get("modifiedResult"):
+            result_content = hook_result["modifiedResult"]
+
+        # additionalContext를 결과에 추가
+        hook_output = hook_result.get("hookSpecificOutput", {})
+        if hook_output.get("additionalContext"):
+            additional = hook_output["additionalContext"]
+            result_content = f"{result_content}\n\n<hook-note>\n{additional}\n</hook-note>"
+
+        return result_content
 
     except Exception as e:
         return f"[ERROR] Subagent failed: {type(e).__name__}: {str(e)}"

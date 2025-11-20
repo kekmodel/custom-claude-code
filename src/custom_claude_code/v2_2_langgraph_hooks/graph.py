@@ -4,26 +4,33 @@ v2.2: LangGraph StateGraph with Hook System
 워크플로우: START → agent → should_continue → [tools → agent] or [END]
 핵심: StateGraph = 노드(Node) + 엣지(Edge) + 상태(State)
 
-Hook System 통합:
-- Tool 실행 전후로 Hook 트리거 가능
-- PreToolUse: 도구 검증 및 입력 수정
-- PostToolUse: 결과 후처리 및 파일 추출
+Hook System 완전 통합 (execute_tools 노드):
+- PreToolUse Hook: 도구 실행 전 검증/차단/입력 수정
+  * decision="block" → 도구 실행 차단
+  * updatedInput → 입력 파라미터 수정
+  * systemMessage → LLM에게 피드백 전달
+- PostToolUse Hook: 도구 실행 후 결과 후처리/즉시 중단
+  * continue_=False → 즉시 실행 중단
+  * additionalContext → LLM에게 추가 정보 전달
+  * hookSpecificOutput → Hook별 특수 출력
 """
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
+from .hooks import trigger_hook, HookContext
 from .nodes import call_agent, execute_subagent, get_system_prompt, should_continue
 from .tools import TOOLS_BY_NAME
 from .types import AgentState
 
 async def execute_tools(state: AgentState) -> dict:
     """
-    커스텀 도구 실행 노드 (LangGraph ToolNode 대체)
+    커스텀 도구 실행 노드 (Hook System 통합)
 
     특수 처리: task_tool → Subagent 실행, todo_write → state 업데이트
     일반 도구: TOOLS_BY_NAME에서 invoke()
+    Hook: PreToolUse (실행 전), PostToolUse (실행 후)
 
     Returns: {"messages": [ToolMessage, ...], "todos": [...]}
     """
@@ -36,11 +43,48 @@ async def execute_tools(state: AgentState) -> dict:
     tool_messages = []
     updated_todos = state.get("todos")
 
+    # Hook Context 생성
+    context = HookContext(
+        session_id=state.get("session_id", "default"),
+        turn_count=len(messages),
+    )
+
     for tool_call in last_message.tool_calls:
         tool_name = tool_call["name"]
         tool_args = tool_call["args"]
         tool_call_id = tool_call["id"]
 
+        # PreToolUse Hook 트리거
+        pre_hook_result = await trigger_hook(
+            event="PreToolUse",
+            input_data={
+                "tool_name": tool_name,
+                "tool_input": tool_args,
+            },
+            tool_use_id=tool_call_id,
+            context=context
+        )
+
+        # Hook이 차단하면 실행 안 함
+        if pre_hook_result.get("decision") == "block":
+            error_msg = pre_hook_result.get("systemMessage", "Tool execution blocked by hook")
+            tool_messages.append(
+                ToolMessage(content=f"[BLOCKED] {error_msg}", tool_call_id=tool_call_id, name=tool_name)
+            )
+
+            # systemMessage를 LLM에게 전달
+            if pre_hook_result.get("systemMessage"):
+                tool_messages.append(
+                    HumanMessage(content=f"<system-reminder>\n{pre_hook_result['systemMessage']}\n</system-reminder>")
+                )
+
+            continue  # 다음 도구로
+
+        # Hook이 입력 수정했으면 반영
+        if "updatedInput" in pre_hook_result:
+            tool_args.update(pre_hook_result["updatedInput"])
+
+        # 도구 실행
         try:
             if tool_name == "task_tool":
                 system_prompt = get_system_prompt(state.get("working_dir"))
@@ -70,14 +114,55 @@ async def execute_tools(state: AgentState) -> dict:
                     else:
                         result = tool.invoke(tool_args)
 
+            # PostToolUse Hook 트리거
+            post_hook_result = await trigger_hook(
+                event="PostToolUse",
+                input_data={
+                    "tool_name": tool_name,
+                    "tool_input": tool_args,
+                    "tool_response": result,
+                },
+                tool_use_id=tool_call_id,
+                context=context
+            )
+
+            # continue_ 필드 체크 (즉시 중단)
+            if not post_hook_result.get("continue_", True):
+                stop_reason = post_hook_result.get("stopReason", "Execution halted by hook")
+                tool_messages.append(
+                    ToolMessage(content=f"[STOPPED] {stop_reason}", tool_call_id=tool_call_id, name=tool_name)
+                )
+
+                # systemMessage 전달
+                if post_hook_result.get("systemMessage"):
+                    tool_messages.append(
+                        HumanMessage(content=f"<system-reminder>\n{post_hook_result['systemMessage']}\n</system-reminder>")
+                    )
+
+                # 즉시 반환 (더 이상 도구 실행 안 함)
+                result_dict = {"messages": tool_messages}
+                if updated_todos is not None:
+                    result_dict["todos"] = updated_todos
+                return result_dict
+
+            # 일반 Tool Result
             tool_messages.append(
                 ToolMessage(content=str(result), tool_call_id=tool_call_id, name=tool_name)
             )
 
+            # PostToolUse Hook의 additionalContext를 LLM에게 전달
+            hook_output = post_hook_result.get("hookSpecificOutput", {})
+            if hook_output.get("additionalContext"):
+                tool_messages.append(
+                    HumanMessage(content=f"<system-reminder>\n{hook_output['additionalContext']}\n</system-reminder>")
+                )
+
         except Exception as e:
             tool_messages.append(
                 ToolMessage(
-                    content=f"[ERROR] {type(e).__name__}: {str(e)}", tool_call_id=tool_call_id, name=tool_name
+                    content=f"[ERROR] {type(e).__name__}: {str(e)}",
+                    tool_call_id=tool_call_id,
+                    name=tool_name
                 )
             )
 

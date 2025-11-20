@@ -1,10 +1,14 @@
 """
 v2.2: LangGraph with Hook System
 
-v2.1 기반 + Hook System 추가:
-- Hook System: PreToolUse, PostToolUse, UserPromptSubmit 등 6개 Hook Events
-- Validation Agent: Bash 명령어 보안 검증 (PreToolUse hook)
-- File Extraction Agent: 파일 경로 자동 추출 (PostToolUse hook)
+v2.1 기반 + Hook System 완전 통합:
+- Hook System: 4개 Hook Events 완전히 작동
+  * PreToolUse: 도구 실행 전 검증/차단 (graph.py)
+  * PostToolUse: 도구 실행 후 후처리/중단 (graph.py)
+  * UserPromptSubmit: 사용자 입력 시 컨텍스트 주입 (main.py)
+  * SubagentStop: Subagent 완료 시 결과 후처리 (nodes.py)
+- Validation Agent: Bash 명령어 보안 검증 (PreToolUse hook 예시)
+- File Extraction Agent: 파일 경로 자동 추출 (PostToolUse hook 예시)
 - Permission System: can_use_tool API (고수준 추상화)
 - Settings Loader: CLAUDE.md 자동 로드
 
@@ -28,6 +32,7 @@ from rich.spinner import Spinner
 from rich.text import Text
 
 from .graph import graph
+from .hooks import trigger_hook, HookContext
 
 load_dotenv()
 console = Console()
@@ -466,6 +471,14 @@ async def handle_command(user_input: str, messages: list) -> bool:
     cmd = user_input.lower()
 
     if cmd == "quit":
+        # TODO: Stop Hook 구현 위치 (정상 종료)
+        # await trigger_hook(
+        #     event="Stop",
+        #     input_data={"reason": "user_command", "message_count": len(messages)},
+        #     tool_use_id=None,
+        #     context=HookContext(session_id="main", turn_count=len(messages))
+        # )
+        # Hook에서 정리 작업 수행 가능 (세션 저장, 통계 기록 등)
         console.print("[yellow]Goodbye![/yellow]")
         return False
 
@@ -558,6 +571,14 @@ async def run_conversation_loop():
         try:
             user_input = await prompt_session.prompt_async("\n> ")
         except (KeyboardInterrupt, EOFError):
+            # TODO: Stop Hook 구현 위치 (사용자 중단)
+            # await trigger_hook(
+            #     event="Stop",
+            #     input_data={"reason": "user_interrupt", "message_count": len(messages)},
+            #     tool_use_id=None,
+            #     context=HookContext(session_id="main", turn_count=len(messages))
+            # )
+            # Hook에서 정리 작업 수행 가능 (로그 저장, 리소스 해제 등)
             console.print("\n[yellow]Goodbye![/yellow]")
             break
 
@@ -571,8 +592,41 @@ async def run_conversation_loop():
                 break
             continue
 
+        # UserPromptSubmit Hook 트리거
+        context = HookContext(
+            session_id="main",
+            turn_count=len(messages),
+        )
+
+        hook_result = await trigger_hook(
+            event="UserPromptSubmit",
+            input_data={"user_input": user_input},
+            tool_use_id=None,
+            context=context
+        )
+
+        # additionalContext를 user_input에 추가
+        final_input = user_input
+        hook_output = hook_result.get("hookSpecificOutput", {})
+        if hook_output.get("additionalContext"):
+            additional = hook_output["additionalContext"]
+            final_input = f"{user_input}\n\n<system-reminder>\n{additional}\n</system-reminder>"
+
+        # TODO: PreCompact Hook 구현 위치
+        # 메시지 수/토큰 수가 임계값을 초과하면:
+        # 1. PreCompact Hook 트리거
+        #    hook_result = await trigger_hook(
+        #        event="PreCompact",
+        #        input_data={"messages": messages, "threshold": 100000},
+        #        tool_use_id=None,
+        #        context=HookContext(session_id="main", turn_count=len(messages))
+        #    )
+        # 2. Hook에서 보존할 메시지 마킹 가능
+        # 3. 메시지 압축 수행 (RemoveMessage 사용)
+        # 4. 압축된 메시지로 교체
+
         # 일반 메시지 처리
-        messages.append(HumanMessage(content=user_input))
+        messages.append(HumanMessage(content=final_input))
         await process_graph_stream(messages, working_dir)
 
 
