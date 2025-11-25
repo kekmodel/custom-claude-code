@@ -1,0 +1,541 @@
+[
+  {
+    "name": "Task",
+    "description": "복잡한 다단계 작업을 자율적으로 처리할 새 에이전트를 시작합니다.\n\nTask 도구는 복잡한 작업을 자율적으로 처리하는 특화된 에이전트(서브프로세스)를 시작합니다. 각 에이전트 유형에는 특정 기능과 사용 가능한 도구가 있습니다.\n\n사용 가능한 에이전트 유형과 접근 가능한 도구:\n- general-purpose: 복잡한 질문 연구, 코드 검색, 다단계 작업 실행을 위한 범용 에이전트. 키워드나 파일을 검색할 때 처음 몇 번 시도에서 올바른 매치를 찾을 자신이 없으면 이 에이전트를 사용하세요. (Tools: *)\n- statusline-setup: 사용자의 Claude Code status line 설정을 구성하는 데 사용. (Tools: Read, Edit)\n- Explore: 코드베이스 탐색에 특화된 빠른 에이전트. 패턴으로 파일을 빠르게 찾거나 (예: \"src/components/**/*.tsx\"), 키워드로 코드를 검색하거나 (예: \"API endpoints\"), 코드베이스에 대한 질문에 답할 때 사용 (예: \"how do API endpoints work?\"). 이 에이전트를 호출할 때 원하는 철저함 수준을 지정: 기본 검색은 \"quick\", 중간 탐색은 \"medium\", 여러 위치와 명명 규칙에 걸친 포괄적 분석은 \"very thorough\". (Tools: All tools)\n- Plan: 코드베이스 탐색에 특화된 빠른 에이전트. 패턴으로 파일을 빠르게 찾거나 (예: \"src/components/**/*.tsx\"), 키워드로 코드를 검색하거나 (예: \"API endpoints\"), 코드베이스에 대한 질문에 답할 때 사용 (예: \"how do API endpoints work?\"). 이 에이전트를 호출할 때 원하는 철저함 수준을 지정: 기본 검색은 \"quick\", 중간 탐색은 \"medium\", 여러 위치와 명명 규칙에 걸친 포괄적 분석은 \"very thorough\". (Tools: All tools)\n- claude-code-guide: 사용자가 Claude Code나 Claude Agent SDK에 대해 질문할 때 사용. Claude Code 기능 (\"can Claude Code...\", \"does Claude Code have...\"), 특정 기능 사용법 (hooks, slash commands, MCP servers), Claude Agent SDK 아키텍처나 개발에 대한 질문 포함. **IMPORTANT:** 새 에이전트를 생성하기 전에, \"resume\" 파라미터를 사용하여 재개할 수 있는 실행 중이거나 최근 완료된 claude-code-guide 에이전트가 있는지 확인하세요. 기존 에이전트를 재사용하는 것이 더 효율적이고 이전 문서 조회의 context를 유지합니다. (Tools: Glob, Grep, Read, WebFetch, WebSearch)\n\nTask 도구를 사용할 때 어떤 에이전트 유형을 사용할지 subagent_type 파라미터를 지정해야 합니다.\n\nTask 도구를 사용하지 **말아야** 할 때:\n- 특정 파일 경로를 읽으려면, 더 빠르게 매치를 찾기 위해 Task 도구 대신 Read나 Glob 도구를 사용\n- \"class Foo\" 같은 특정 클래스 정의를 검색하려면, 더 빠르게 매치를 찾기 위해 Glob 도구를 사용\n- 특정 파일이나 2-3개 파일 세트 내에서 코드를 검색하려면, 더 빠르게 매치를 찾기 위해 Task 도구 대신 Read 도구를 사용\n- 위의 에이전트 설명과 관련 없는 다른 작업\n\n\nUsage notes:\n- 성능을 최대화하기 위해 가능하면 여러 에이전트를 동시에 시작; 그러려면 여러 tool use가 포함된 단일 메시지 사용\n- 에이전트가 완료되면 단일 메시지를 반환합니다. 에이전트가 반환한 결과는 사용자에게 보이지 않습니다. 사용자에게 결과를 보여주려면 결과의 간결한 요약과 함께 텍스트 메시지를 사용자에게 보내야 합니다.\n- 각 에이전트 호출은 stateless입니다. 에이전트에 추가 메시지를 보낼 수 없고, 에이전트도 최종 리포트 외에는 당신과 통신할 수 없습니다. 따라서 프롬프트에는 에이전트가 자율적으로 수행할 매우 상세한 작업 설명이 포함되어야 하고, 에이전트가 최종 메시지에서 어떤 정보를 반환해야 하는지 정확히 지정해야 합니다.\n- \"access to current context\"가 있는 에이전트는 도구 호출 전의 전체 대화 기록을 볼 수 있습니다. 이 에이전트를 사용할 때는 정보를 반복하는 대신 이전 context를 참조하는 간결한 프롬프트를 작성할 수 있습니다 (예: \"investigate the error discussed above\"). 에이전트가 모든 이전 메시지를 받고 context를 이해합니다.\n- 에이전트의 출력은 일반적으로 신뢰해야 합니다\n- 에이전트가 사용자의 의도를 모르므로 코드를 작성할 것인지 연구만 할 것인지 (검색, 파일 읽기, web fetch 등) 명확히 알려주세요\n- 에이전트 설명에서 적극적으로 사용해야 한다고 언급하면, 사용자가 먼저 요청하지 않아도 사용하도록 최선을 다하세요. 판단을 사용하세요.\n- 사용자가 에이전트를 \"in parallel\"로 실행하도록 지정하면, 여러 Task tool use content block이 포함된 단일 메시지를 **반드시** 보내야 합니다. 예를 들어, code-reviewer 에이전트와 test-runner 에이전트를 병렬로 시작해야 한다면, 두 도구 호출이 포함된 단일 메시지를 보내세요.\n\nExample usage:\n\n<example_agent_descriptions>\n\"code-reviewer\": use this agent after you are done writing a signficant piece of code\n\"greeting-responder\": use this agent when to respond to user greetings with a friendly joke\n</example_agent_description>\n\n<example>\nuser: \"Please write a function that checks if a number is prime\"\nassistant: Sure let me write a function that checks if a number is prime\nassistant: First let me use the Write tool to write a function that checks if a number is prime\nassistant: I'm going to use the Write tool to write the following code:\n<code>\nfunction isPrime(n) {\n  if (n <= 1) return false\n  for (let i = 2; i * i <= n; i++) {\n    if (n % i === 0) return false\n  }\n  return true\n}\n</code>\n<commentary>\nSince a signficant piece of code was written and the task was completed, now use the code-reviewer agent to review the code\n</commentary>\nassistant: Now let me use the code-reviewer agent to review the code\nassistant: Uses the Task tool to launch the code-reviewer agent \n</example>\n\n<example>\nuser: \"Hello\"\n<commentary>\nSince the user is greeting, use the greeting-responder agent to respond with a friendly joke\n</commentary>\nassistant: \"I'm going to use the Task tool to launch the greeting-responder agent\"\n</example>\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "작업에 대한 짧은 (3-5 단어) 설명"
+        },
+        "prompt": {
+          "type": "string",
+          "description": "에이전트가 수행할 작업"
+        },
+        "subagent_type": {
+          "type": "string",
+          "description": "이 작업에 사용할 특화된 에이전트 유형"
+        },
+        "model": {
+          "type": "string",
+          "enum": ["sonnet", "opus", "haiku"],
+          "description": "이 에이전트에 사용할 선택적 모델. 지정하지 않으면 부모로부터 상속. 비용과 지연 시간을 최소화하기 위해 빠르고 간단한 작업에는 haiku 선호."
+        },
+        "resume": {
+          "type": "string",
+          "description": "재개할 선택적 에이전트 ID. 제공되면 이전 실행 트랜스크립트에서 계속합니다."
+        }
+      },
+      "required": ["description", "prompt", "subagent_type"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "Bash",
+    "description": "선택적 timeout과 함께 persistent shell 세션에서 주어진 bash 명령을 실행하고, 적절한 처리와 보안 조치를 보장합니다.\n\nIMPORTANT: 이 도구는 git, npm, docker 등의 터미널 작업용입니다. 파일 작업 (읽기, 쓰기, 편집, 검색, 파일 찾기)에는 사용하지 마세요 - 대신 특화된 도구를 사용하세요.\n\n명령을 실행하기 전에 다음 단계를 따르세요:\n\n1. Directory Verification:\n   - 명령이 새 디렉토리나 파일을 생성하면, 먼저 `ls`를 사용하여 부모 디렉토리가 존재하고 올바른 위치인지 확인\n   - 예를 들어, \"mkdir foo/bar\"를 실행하기 전에 먼저 `ls foo`를 사용하여 \"foo\"가 존재하고 의도한 부모 디렉토리인지 확인\n\n2. Command Execution:\n   - 공백이 포함된 파일 경로는 항상 큰따옴표로 감싸기 (예: cd \"path with spaces/file.txt\")\n   - 올바른 따옴표 사용 예:\n     - cd \"/Users/name/My Documents\" (correct)\n     - cd /Users/name/My Documents (incorrect - will fail)\n     - python \"/path/with spaces/script.py\" (correct)\n     - python /path/with spaces/script.py (incorrect - will fail)\n   - 적절한 따옴표 확인 후 명령 실행\n   - 명령의 출력 캡처\n\nUsage notes:\n  - command 인자는 필수입니다.\n  - 선택적 timeout을 밀리초로 지정 가능 (최대 600000ms / 10분). 지정하지 않으면 120000ms (2분) 후 timeout.\n  - 이 명령이 무엇을 하는지 5-10 단어로 명확하고 간결한 설명을 작성하면 매우 유용합니다.\n  - 출력이 30000자를 초과하면 반환 전에 잘립니다.\n  - `run_in_background` 파라미터를 사용하여 명령을 백그라운드에서 실행할 수 있으며, 명령이 실행되는 동안 계속 작업 가능. 출력이 가능해지면 Bash 도구로 모니터링 가능. 이 파라미터 사용 시 명령 끝에 '&'를 사용할 필요 없음.\n  \n  - 명시적으로 지시하거나 작업에 진정 필요한 경우가 아니면 `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, `echo` 명령과 함께 Bash 사용을 피하세요. 대신 항상 이 명령들에 대한 전용 도구를 선호:\n    - 파일 검색: Glob 사용 (find나 ls 아님)\n    - 내용 검색: Grep 사용 (grep이나 rg 아님)\n    - 파일 읽기: Read 사용 (cat/head/tail 아님)\n    - 파일 편집: Edit 사용 (sed/awk 아님)\n    - 파일 쓰기: Write 사용 (echo >/cat <<EOF 아님)\n    - 커뮤니케이션: 텍스트를 직접 출력 (echo/printf 아님)\n  - 여러 명령 실행 시:\n    - 명령들이 독립적이고 병렬 실행 가능하면, 단일 메시지에서 여러 Bash 도구 호출. 예를 들어, \"git status\"와 \"git diff\"를 실행해야 하면, 두 Bash 도구 호출이 포함된 단일 메시지를 병렬로 보내세요.\n    - 명령들이 서로 의존하고 순차 실행해야 하면, '&&'로 연결하는 단일 Bash 호출 사용 (예: `git add . && git commit -m \"message\" && git push`). 예를 들어, 한 작업이 다른 작업 시작 전에 완료되어야 하면 (mkdir 후 cp, git 작업 전 Write, git add 후 git commit), 이 작업들을 순차 실행.\n    - 이전 명령 실패에 관계없이 순차 실행이 필요하면 ';'만 사용\n    - 명령 구분에 줄바꿈 사용 금지 (따옴표 문자열 내 줄바꿈은 가능)\n  - 절대 경로를 사용하고 `cd` 사용을 피해 세션 전체에서 현재 작업 디렉토리를 유지하세요. 사용자가 명시적으로 요청하면 `cd` 사용 가능.\n    <good-example>\n    pytest /foo/bar/tests\n    </good-example>\n    <bad-example>\n    cd /foo/bar && pytest tests\n    </bad-example>\n\n# Committing changes with git\n\n사용자가 요청할 때만 commit 생성. 불확실하면 먼저 물어보세요. 사용자가 새 git commit 생성을 요청하면 다음 단계를 주의 깊게 따르세요:\n\nGit Safety Protocol:\n- git config를 **절대** 업데이트하지 마세요\n- 사용자가 명시적으로 요청하지 않으면 파괴적/되돌릴 수 없는 git 명령 (push --force, hard reset 등)을 **절대** 실행하지 마세요\n- 사용자가 명시적으로 요청하지 않으면 hook을 **절대** 건너뛰지 마세요 (--no-verify, --no-gpg-sign 등)\n- main/master에 force push를 **절대** 하지 마세요, 요청하면 사용자에게 경고\n- git commit --amend를 피하세요. (1) 사용자가 명시적으로 amend를 요청했거나 (2) pre-commit hook에서 편집을 추가할 때만 --amend 사용 (아래 추가 지침)\n- amend 전: **항상** 작성자 확인 (git log -1 --format='%an %ae')\n- 사용자가 명시적으로 요청하지 않으면 변경사항을 **절대** commit하지 마세요. 명시적으로 요청받을 때만 commit하는 것이 **매우 중요**합니다, 그렇지 않으면 사용자가 너무 적극적이라고 느낄 것입니다.\n\n1. 단일 응답에서 여러 도구를 호출할 수 있습니다. 여러 독립적인 정보가 요청되고 모든 명령이 성공할 가능성이 높으면, 최적의 성능을 위해 여러 도구 호출을 병렬로 실행. 다음 bash 명령을 각각 Bash 도구를 사용하여 병렬로 실행:\n  - 모든 untracked 파일을 보기 위한 git status 명령 실행.\n  - commit될 staged와 unstaged 변경사항을 보기 위한 git diff 명령 실행.\n  - 이 저장소의 commit 메시지 스타일을 따르기 위해 최근 commit 메시지를 보기 위한 git log 명령 실행.\n2. 모든 staged 변경사항 (이전에 staged된 것과 새로 추가된 것)을 분석하고 commit 메시지 초안 작성:\n  - 변경 특성 요약 (예: 새 기능, 기존 기능 개선, 버그 수정, 리팩토링, 테스트, 문서 등). 메시지가 변경사항과 목적을 정확히 반영하는지 확인 (즉, \"add\"는 완전히 새로운 기능, \"update\"는 기존 기능 개선, \"fix\"는 버그 수정 등).\n  - 비밀을 포함할 가능성이 있는 파일은 commit하지 마세요 (.env, credentials.json 등). 사용자가 그 파일들을 commit하도록 구체적으로 요청하면 경고\n  - \"what\"보다 \"why\"에 초점을 맞춘 간결한 (1-2 문장) commit 메시지 초안 작성\n  - 변경사항과 목적을 정확히 반영하는지 확인\n3. 단일 응답에서 여러 도구를 호출할 수 있습니다. 여러 독립적인 정보가 요청되고 모든 명령이 성공할 가능성이 높으면, 최적의 성능을 위해 여러 도구 호출을 병렬로 실행. 다음 명령 실행:\n   - 관련 untracked 파일을 staging area에 추가.\n   - 다음으로 끝나는 메시지로 commit 생성:\n   🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n   Co-Authored-By: Claude <noreply@anthropic.com>\n   - commit 완료 후 성공 확인을 위해 git status 실행.\n   Note: git status는 commit 완료에 의존하므로, commit 후 순차적으로 실행.\n4. pre-commit hook 변경으로 commit이 실패하면 한 번 재시도. 성공했지만 hook에 의해 파일이 수정되었으면 amend가 안전한지 확인:\n   - 작성자 확인: git log -1 --format='%an %ae'\n   - push 안 됨 확인: git status가 \"Your branch is ahead\" 표시\n   - 둘 다 참이면: commit amend. 그렇지 않으면: 새 commit 생성 (다른 개발자의 commit을 **절대** amend하지 마세요)\n\nImportant notes:\n- git bash 명령 외에 코드를 읽거나 탐색하는 추가 명령을 **절대** 실행하지 마세요\n- TodoWrite나 Task 도구를 **절대** 사용하지 마세요\n- 사용자가 명시적으로 요청하지 않으면 원격 저장소에 push하지 마세요\n- IMPORTANT: 대화형 입력이 필요한 -i 플래그가 있는 git 명령 (git rebase -i나 git add -i 같은)은 지원되지 않으므로 **절대** 사용하지 마세요.\n- commit할 변경사항이 없으면 (untracked 파일도 수정도 없음), 빈 commit을 만들지 마세요\n- 좋은 포맷을 보장하기 위해 commit 메시지는 **항상** 다음 예제처럼 HEREDOC으로 전달:\n<example>\ngit commit -m \"$(cat <<'EOF'\n   Commit message here.\n\n   🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n   Co-Authored-By: Claude <noreply@anthropic.com>\n   EOF\n   )\"\n</example>\n\n# Creating pull requests\ngh 명령을 Bash 도구를 통해 issues, pull requests, checks, releases를 포함한 모든 GitHub 관련 작업에 사용. Github URL이 주어지면 gh 명령을 사용하여 필요한 정보를 얻으세요.\n\nIMPORTANT: 사용자가 pull request 생성을 요청하면 다음 단계를 주의 깊게 따르세요:\n\n1. 단일 응답에서 여러 도구를 호출할 수 있습니다. 여러 독립적인 정보가 요청되고 모든 명령이 성공할 가능성이 높으면, 최적의 성능을 위해 여러 도구 호출을 병렬로 실행. main branch에서 분기된 이후 branch의 현재 상태를 이해하기 위해 Bash 도구를 사용하여 다음 bash 명령을 병렬로 실행:\n   - 모든 untracked 파일을 보기 위한 git status 명령 실행\n   - commit될 staged와 unstaged 변경사항을 보기 위한 git diff 명령 실행\n   - 현재 branch가 remote branch를 추적하고 remote와 최신 상태인지 확인, remote에 push가 필요한지 알기 위해\n   - base branch에서 분기된 이후 현재 branch의 전체 commit 기록을 이해하기 위해 git log 명령과 `git diff [base-branch]...HEAD` 실행\n2. pull request에 포함될 모든 변경사항 분석, 모든 관련 commit을 확인 (최신 commit만이 아니라 pull request에 포함될 **모든** commit!!!), pull request 요약 초안 작성\n3. 단일 응답에서 여러 도구를 호출할 수 있습니다. 여러 독립적인 정보가 요청되고 모든 명령이 성공할 가능성이 높으면, 최적의 성능을 위해 여러 도구 호출을 병렬로 실행. 다음 명령을 병렬로 실행:\n   - 필요시 새 branch 생성\n   - 필요시 -u 플래그로 remote에 push\n   - 아래 형식으로 gh pr create를 사용하여 PR 생성. 올바른 포맷을 위해 body 전달에 HEREDOC 사용.\n<example>\ngh pr create --title \"the pr title\" --body \"$(cat <<'EOF'\n## Summary\n<1-3 bullet points>\n\n## Test plan\n[Bulleted markdown checklist of TODOs for testing the pull request...]\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\nEOF\n)\"\n</example>\n\nImportant:\n- TodoWrite나 Task 도구를 사용하지 마세요\n- 완료되면 PR URL을 반환하여 사용자가 볼 수 있게 하세요\n\n# Other common operations\n- Github PR의 코멘트 보기: gh api repos/foo/bar/pulls/123/comments",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "실행할 명령"
+        },
+        "timeout": {
+          "type": "number",
+          "description": "선택적 timeout (밀리초, 최대 600000)"
+        },
+        "description": {
+          "type": "string",
+          "description": "이 명령이 무엇을 하는지 5-10 단어로 명확하고 간결한 설명, 능동태로. 예:\nInput: ls\nOutput: List files in current directory\n\nInput: git status\nOutput: Show working tree status\n\nInput: npm install\nOutput: Install package dependencies\n\nInput: mkdir foo\nOutput: Create directory 'foo'"
+        },
+        "run_in_background": {
+          "type": "boolean",
+          "description": "이 명령을 백그라운드에서 실행하려면 true로 설정. 나중에 출력을 읽으려면 BashOutput 사용."
+        },
+        "dangerouslyDisableSandbox": {
+          "type": "boolean",
+          "description": "sandbox 모드를 위험하게 override하고 sandboxing 없이 명령을 실행하려면 true로 설정."
+        }
+      },
+      "required": ["command"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "Glob",
+    "description": "- 어떤 크기의 코드베이스에서도 작동하는 빠른 파일 패턴 매칭 도구\n- \"**/*.js\"나 \"src/**/*.ts\" 같은 glob 패턴 지원\n- 수정 시간순으로 정렬된 매칭 파일 경로 반환\n- 이름 패턴으로 파일을 찾아야 할 때 이 도구 사용\n- 여러 차례의 globbing과 grepping이 필요할 수 있는 개방형 검색을 할 때는 대신 Agent 도구 사용\n- 단일 응답에서 여러 도구를 호출할 수 있습니다. 잠재적으로 유용하다면 여러 검색을 병렬로 투기적으로 수행하는 것이 항상 더 좋습니다.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "description": "파일을 매칭할 glob 패턴"
+        },
+        "path": {
+          "type": "string",
+          "description": "검색할 디렉토리. 지정하지 않으면 현재 작업 디렉토리 사용. IMPORTANT: 기본 디렉토리를 사용하려면 이 필드를 생략하세요. \"undefined\"나 \"null\"을 입력하지 마세요 - 기본 동작을 위해 단순히 생략. 제공하면 유효한 디렉토리 경로여야 합니다."
+        }
+      },
+      "required": ["pattern"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "Grep",
+    "description": "ripgrep을 기반으로 한 강력한 검색 도구\n\n  Usage:\n  - 검색 작업에는 **항상** Grep을 사용하세요. Bash 명령으로 `grep`이나 `rg`를 **절대** 호출하지 마세요. Grep 도구는 올바른 권한과 접근을 위해 최적화되었습니다.\n  - 전체 regex 구문 지원 (예: \"log.*Error\", \"function\\s+\\w+\")\n  - glob 파라미터로 파일 필터링 (예: \"*.js\", \"**/*.tsx\") 또는 type 파라미터로 (예: \"js\", \"py\", \"rust\")\n  - 출력 모드: \"content\"는 매칭 줄 표시, \"files_with_matches\"는 파일 경로만 표시 (기본값), \"count\"는 매치 수 표시\n  - 여러 차례가 필요한 개방형 검색에는 Task 도구 사용\n  - 패턴 구문: ripgrep 사용 (grep 아님) - 리터럴 중괄호는 이스케이프 필요 (Go 코드에서 `interface{}`를 찾으려면 `interface\\{\\}`사용)\n  - 멀티라인 매칭: 기본적으로 패턴은 단일 줄 내에서만 매칭. `struct \\{[\\s\\S]*?field` 같은 줄을 넘는 패턴에는 `multiline: true` 사용\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "description": "파일 내용에서 검색할 정규 표현식 패턴"
+        },
+        "path": {
+          "type": "string",
+          "description": "검색할 파일 또는 디렉토리 (rg PATH). 기본값은 현재 작업 디렉토리."
+        },
+        "glob": {
+          "type": "string",
+          "description": "파일을 필터링할 Glob 패턴 (예: \"*.js\", \"*.{ts,tsx}\") - rg --glob에 매핑"
+        },
+        "output_mode": {
+          "type": "string",
+          "enum": ["content", "files_with_matches", "count"],
+          "description": "출력 모드: \"content\"는 매칭 줄 표시 (-A/-B/-C context, -n 줄 번호, head_limit 지원), \"files_with_matches\"는 파일 경로 표시 (head_limit 지원), \"count\"는 매치 수 표시 (head_limit 지원). 기본값 \"files_with_matches\"."
+        },
+        "-B": {
+          "type": "number",
+          "description": "각 매치 전에 표시할 줄 수 (rg -B). output_mode: \"content\" 필요, 그렇지 않으면 무시."
+        },
+        "-A": {
+          "type": "number",
+          "description": "각 매치 후에 표시할 줄 수 (rg -A). output_mode: \"content\" 필요, 그렇지 않으면 무시."
+        },
+        "-C": {
+          "type": "number",
+          "description": "각 매치 전후에 표시할 줄 수 (rg -C). output_mode: \"content\" 필요, 그렇지 않으면 무시."
+        },
+        "-n": {
+          "type": "boolean",
+          "description": "출력에 줄 번호 표시 (rg -n). output_mode: \"content\" 필요, 그렇지 않으면 무시. 기본값 true."
+        },
+        "-i": {
+          "type": "boolean",
+          "description": "대소문자 구분 없는 검색 (rg -i)"
+        },
+        "type": {
+          "type": "string",
+          "description": "검색할 파일 유형 (rg --type). 일반적인 유형: js, py, rust, go, java 등. 표준 파일 유형에는 include보다 더 효율적."
+        },
+        "head_limit": {
+          "type": "number",
+          "description": "출력을 처음 N 줄/항목으로 제한, \"| head -N\"과 동등. 모든 출력 모드에서 작동: content (출력 줄 제한), files_with_matches (파일 경로 제한), count (카운트 항목 제한). \"cap\" 실험 값에 따라 기본값: 0 (무제한), 20, 또는 100."
+        },
+        "offset": {
+          "type": "number",
+          "description": "head_limit 적용 전 처음 N 줄/항목 건너뛰기, \"| tail -n +N | head -N\"과 동등. 모든 출력 모드에서 작동. 기본값 0."
+        },
+        "multiline": {
+          "type": "boolean",
+          "description": ".이 줄바꿈과 매치하고 패턴이 줄을 넘을 수 있는 멀티라인 모드 활성화 (rg -U --multiline-dotall). 기본값: false."
+        }
+      },
+      "required": ["pattern"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "ExitPlanMode",
+    "description": "plan mode에 있고 plan 파일에 계획 작성을 완료하고 사용자 승인을 받을 준비가 되었을 때 이 도구를 사용하세요.\n\n## How This Tool Works\n- plan mode 시스템 메시지에 지정된 plan 파일에 계획을 이미 작성했어야 합니다\n- 이 도구는 plan 내용을 파라미터로 받지 **않습니다** - 작성한 파일에서 계획을 읽습니다\n- 이 도구는 단순히 계획 작성이 완료되었고 사용자가 검토하고 승인할 준비가 되었음을 신호합니다\n- 사용자가 검토할 때 plan 파일의 내용을 볼 것입니다\n\n## When to Use This Tool\nIMPORTANT: 코드 작성이 필요한 작업의 구현 단계를 계획할 때만 이 도구를 사용하세요. 정보 수집, 파일 검색, 파일 읽기 또는 일반적으로 코드베이스 이해를 위한 연구 작업에서는 이 도구를 사용하지 마세요.\n\n## Handling Ambiguity in Plans\n이 도구를 사용하기 전에 계획이 명확하고 모호하지 않은지 확인하세요. 여러 유효한 접근법이 있거나 요구사항이 불명확하면:\n1. AskUserQuestion 도구를 사용하여 사용자에게 명확히 하세요\n2. 특정 구현 선택에 대해 물어보세요 (예: 아키텍처 패턴, 사용할 라이브러리)\n3. 구현에 영향을 줄 수 있는 가정을 명확히 하세요\n4. 사용자 피드백을 반영하여 plan 파일 편집\n5. 모호성을 해결하고 plan 파일을 업데이트한 후에만 ExitPlanMode 진행\n\n## Examples\n\n1. 초기 작업: \"Search for and understand the implementation of vim mode in the codebase\" - 작업의 구현 단계를 계획하는 것이 아니므로 exit plan mode 도구를 사용하지 마세요.\n2. 초기 작업: \"Help me implement yank mode for vim\" - 작업의 구현 단계 계획을 완료한 후 exit plan mode 도구를 사용하세요.\n3. 초기 작업: \"Add a new feature to handle user authentication\" - 인증 방법 (OAuth, JWT 등)에 대해 불확실하면, 먼저 AskUserQuestion을 사용한 다음 접근 방식을 명확히 한 후 exit plan mode 도구를 사용하세요.\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "Read",
+    "description": "로컬 파일시스템에서 파일을 읽습니다. 이 도구를 사용하여 어떤 파일에도 직접 접근할 수 있습니다.\n이 도구가 머신의 모든 파일을 읽을 수 있다고 가정하세요. 사용자가 파일 경로를 제공하면 그 경로가 유효하다고 가정하세요. 존재하지 않는 파일을 읽어도 괜찮습니다; 에러가 반환됩니다.\n\nUsage:\n- file_path 파라미터는 상대 경로가 아닌 절대 경로여야 합니다\n- 기본적으로 파일 시작부터 최대 2000줄까지 읽습니다\n- 선택적으로 줄 offset과 limit을 지정할 수 있습니다 (특히 긴 파일에 유용), 하지만 이 파라미터를 제공하지 않고 전체 파일을 읽는 것을 권장\n- 2000자를 초과하는 줄은 잘립니다\n- 결과는 cat -n 형식으로 반환되며, 줄 번호는 1부터 시작\n- 이 도구로 Claude Code가 이미지를 읽을 수 있습니다 (예: PNG, JPG 등). 이미지 파일을 읽을 때 Claude Code가 멀티모달 LLM이므로 내용이 시각적으로 표시됩니다.\n- 이 도구는 PDF 파일 (.pdf)을 읽을 수 있습니다. PDF는 페이지별로 처리되어 분석을 위해 텍스트와 시각적 콘텐츠를 모두 추출합니다.\n- 이 도구는 Jupyter 노트북 (.ipynb 파일)을 읽을 수 있고 코드, 텍스트, 시각화를 결합하여 출력과 함께 모든 셀을 반환합니다.\n- 이 도구는 파일만 읽을 수 있고 디렉토리는 읽을 수 없습니다. 디렉토리를 읽으려면 Bash 도구를 통해 ls 명령을 사용하세요.\n- 단일 응답에서 여러 도구를 호출할 수 있습니다. 잠재적으로 유용한 여러 파일을 병렬로 투기적으로 읽는 것이 항상 더 좋습니다.\n- 스크린샷을 읽으라는 요청을 자주 받을 것입니다. 사용자가 스크린샷 경로를 제공하면 **항상** 이 도구를 사용하여 해당 경로의 파일을 보세요. 이 도구는 모든 임시 파일 경로에서 작동합니다.\n- 존재하지만 내용이 비어 있는 파일을 읽으면 파일 내용 대신 시스템 리마인더 경고를 받게 됩니다.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string",
+          "description": "읽을 파일의 절대 경로"
+        },
+        "offset": {
+          "type": "number",
+          "description": "읽기 시작할 줄 번호. 파일이 너무 커서 한 번에 읽을 수 없을 때만 제공"
+        },
+        "limit": {
+          "type": "number",
+          "description": "읽을 줄 수. 파일이 너무 커서 한 번에 읽을 수 없을 때만 제공."
+        }
+      },
+      "required": ["file_path"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "Edit",
+    "description": "파일에서 정확한 문자열 교체를 수행합니다.\n\nUsage:\n- 편집하기 전에 대화에서 `Read` 도구를 최소 한 번 사용해야 합니다. 파일을 읽지 않고 편집하려고 하면 이 도구가 에러를 반환합니다.\n- Read 도구 출력에서 텍스트를 편집할 때, 줄 번호 prefix **이후에** 나타나는 정확한 들여쓰기 (탭/공백)를 보존하세요. 줄 번호 prefix 형식: 공백 + 줄 번호 + 탭. 그 탭 이후의 모든 것이 매칭할 실제 파일 내용입니다. old_string이나 new_string에 줄 번호 prefix의 어떤 부분도 **절대** 포함하지 마세요.\n- 코드베이스의 기존 파일 편집을 **항상** 선호하세요. 명시적으로 필요하지 않으면 새 파일을 **절대** 작성하지 마세요.\n- 사용자가 명시적으로 요청할 때만 이모지를 사용하세요. 요청하지 않으면 파일에 이모지를 추가하지 마세요.\n- `old_string`이 파일에서 고유하지 않으면 편집이 **실패**합니다. 고유하게 만들기 위해 더 많은 주변 context가 포함된 더 큰 문자열을 제공하거나 `replace_all`을 사용하여 `old_string`의 모든 인스턴스를 변경하세요.\n- 파일 전체에서 문자열을 교체하고 이름을 변경하려면 `replace_all`을 사용하세요. 예를 들어 변수 이름을 변경하려는 경우 이 파라미터가 유용합니다.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string",
+          "description": "수정할 파일의 절대 경로"
+        },
+        "old_string": {
+          "type": "string",
+          "description": "교체할 텍스트"
+        },
+        "new_string": {
+          "type": "string",
+          "description": "대체할 텍스트 (old_string과 달라야 함)"
+        },
+        "replace_all": {
+          "type": "boolean",
+          "default": false,
+          "description": "old_string의 모든 발생을 교체 (기본값 false)"
+        }
+      },
+      "required": ["file_path", "old_string", "new_string"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "Write",
+    "description": "로컬 파일시스템에 파일을 작성합니다.\n\nUsage:\n- 이 도구는 제공된 경로에 기존 파일이 있으면 덮어씁니다.\n- 기존 파일이면 먼저 Read 도구를 사용하여 파일 내용을 읽어야 **합니다**. 파일을 먼저 읽지 않으면 이 도구가 실패합니다.\n- 코드베이스의 기존 파일 편집을 **항상** 선호하세요. 명시적으로 필요하지 않으면 새 파일을 **절대** 작성하지 마세요.\n- 문서 파일 (*.md)이나 README 파일을 적극적으로 생성하지 마세요. 사용자가 명시적으로 요청할 때만 문서 파일을 생성하세요.\n- 사용자가 명시적으로 요청할 때만 이모지를 사용하세요. 요청하지 않으면 파일에 이모지를 작성하지 마세요.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string",
+          "description": "작성할 파일의 절대 경로 (상대가 아닌 절대여야 함)"
+        },
+        "content": {
+          "type": "string",
+          "description": "파일에 작성할 내용"
+        }
+      },
+      "required": ["file_path", "content"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "NotebookEdit",
+    "description": "Jupyter 노트북 (.ipynb 파일)의 특정 셀 내용을 새 소스로 완전히 교체합니다. Jupyter 노트북은 코드, 텍스트, 시각화를 결합한 대화형 문서로, 데이터 분석과 과학 컴퓨팅에 일반적으로 사용됩니다. notebook_path 파라미터는 상대 경로가 아닌 절대 경로여야 합니다. cell_number는 0-indexed입니다. cell_number로 지정된 인덱스에 새 셀을 추가하려면 edit_mode=insert를 사용하세요. cell_number로 지정된 인덱스의 셀을 삭제하려면 edit_mode=delete를 사용하세요.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "notebook_path": {
+          "type": "string",
+          "description": "편집할 Jupyter 노트북 파일의 절대 경로 (상대가 아닌 절대여야 함)"
+        },
+        "cell_id": {
+          "type": "string",
+          "description": "편집할 셀의 ID. 새 셀을 삽입할 때, 새 셀은 이 ID를 가진 셀 뒤에 삽입되거나, 지정하지 않으면 시작 부분에."
+        },
+        "new_source": {
+          "type": "string",
+          "description": "셀의 새 소스"
+        },
+        "cell_type": {
+          "type": "string",
+          "enum": ["code", "markdown"],
+          "description": "셀 유형 (code 또는 markdown). 지정하지 않으면 현재 셀 유형이 기본값. edit_mode=insert 사용 시 필수."
+        },
+        "edit_mode": {
+          "type": "string",
+          "enum": ["replace", "insert", "delete"],
+          "description": "수행할 편집 유형 (replace, insert, delete). 기본값 replace."
+        }
+      },
+      "required": ["notebook_path", "new_source"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "WebFetch",
+    "description": "\n- 지정된 URL에서 콘텐츠를 가져와 AI 모델을 사용하여 처리\n- URL과 프롬프트를 입력으로 받음\n- URL 콘텐츠를 가져와 HTML을 markdown으로 변환\n- 작고 빠른 모델을 사용하여 프롬프트로 콘텐츠 처리\n- 콘텐츠에 대한 모델의 응답 반환\n- 웹 콘텐츠를 검색하고 분석해야 할 때 이 도구 사용\n\nUsage notes:\n  - IMPORTANT: MCP 제공 web fetch 도구가 사용 가능하면, 제한이 적을 수 있으므로 이 도구 대신 해당 도구를 선호하세요. 모든 MCP 제공 도구는 \"mcp__\"로 시작합니다.\n  - URL은 완전한 형식의 유효한 URL이어야 함\n  - HTTP URL은 자동으로 HTTPS로 업그레이드됨\n  - 프롬프트는 페이지에서 추출하려는 정보를 설명해야 함\n  - 이 도구는 read-only이며 파일을 수정하지 않음\n  - 콘텐츠가 매우 크면 결과가 요약될 수 있음\n  - 같은 URL에 반복 접근 시 더 빠른 응답을 위한 15분 자동 정리 캐시 포함\n  - URL이 다른 호스트로 리다이렉트하면, 도구가 알리고 특별한 형식으로 리다이렉트 URL을 제공합니다. 그러면 리다이렉트 URL로 새 WebFetch 요청을 해야 합니다.\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "콘텐츠를 가져올 URL"
+        },
+        "prompt": {
+          "type": "string",
+          "description": "가져온 콘텐츠에 대해 실행할 프롬프트"
+        }
+      },
+      "required": ["url", "prompt"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "TodoWrite",
+    "description": "현재 코딩 세션을 위한 구조화된 작업 목록을 생성하고 관리하는 데 이 도구를 사용하세요. 진행 상황을 추적하고, 복잡한 작업을 구성하고, 사용자에게 철저함을 보여주는 데 도움이 됩니다.\n또한 사용자가 작업의 진행 상황과 요청의 전체 진행 상황을 이해하는 데 도움이 됩니다.\n\n## When to Use This Tool\n다음 시나리오에서 이 도구를 적극적으로 사용하세요:\n\n1. 복잡한 다단계 작업 - 작업에 3개 이상의 별개 단계나 조치가 필요할 때\n2. 사소하지 않고 복잡한 작업 - 신중한 계획이나 여러 작업이 필요한 작업\n3. 사용자가 명시적으로 todo 목록을 요청 - 사용자가 직접 todo 목록 사용을 요청할 때\n4. 사용자가 여러 작업을 제공 - 사용자가 할 일 목록을 제공할 때 (번호 매기기 또는 쉼표로 구분)\n5. 새 지시를 받은 후 - 사용자 요구사항을 즉시 todo로 캡처\n6. 작업을 시작할 때 - 작업 시작 **전에** in_progress로 표시. 이상적으로 한 번에 하나의 todo만 in_progress여야 함\n7. 작업을 완료한 후 - 완료로 표시하고 구현 중 발견된 새 후속 작업 추가\n\n## When NOT to Use This Tool\n\n다음 경우 이 도구 사용을 건너뛰세요:\n1. 단일하고 간단한 작업만 있을 때\n2. 작업이 사소하고 추적해도 조직적 이점이 없을 때\n3. 작업이 3개 미만의 사소한 단계로 완료 가능할 때\n4. 작업이 순수하게 대화형이거나 정보 제공용일 때\n\n사소한 작업이 하나만 있으면 이 도구를 사용하지 마세요. 이 경우 작업을 직접 하는 것이 더 낫습니다.\n\n## Task States and Management\n\n1. **Task States**: 진행 상황을 추적하기 위해 다음 상태 사용:\n   - pending: 아직 시작하지 않은 작업\n   - in_progress: 현재 작업 중 (한 번에 **하나**의 작업으로 제한)\n   - completed: 성공적으로 완료된 작업\n\n   IMPORTANT: 작업 설명은 두 가지 형태가 있어야 합니다:\n   - content: 수행해야 할 작업을 설명하는 명령형 (예: \"Run tests\", \"Build the project\")\n   - activeForm: 실행 중 표시되는 현재 진행형 (예: \"Running tests\", \"Building the project\")\n\n2. **Task Management**:\n   - 작업하면서 실시간으로 작업 상태 업데이트\n   - 완료 후 **즉시** 작업을 완료로 표시 (완료를 일괄 처리하지 마세요)\n   - 항상 정확히 **하나**의 작업이 in_progress여야 함 (적지도 많지도 않게)\n   - 새 작업을 시작하기 전에 현재 작업 완료\n   - 더 이상 관련 없는 작업은 목록에서 완전히 제거\n\n3. **Task Completion Requirements**:\n   - 작업을 **완전히** 달성했을 때만 완료로 표시\n   - 에러, 블로커를 만나거나 완료할 수 없으면 in_progress로 유지\n   - 차단되면 해결해야 할 사항을 설명하는 새 작업 생성\n   - 다음 경우 작업을 **절대** 완료로 표시하지 마세요:\n     - 테스트 실패\n     - 구현이 부분적\n     - 해결되지 않은 에러 발생\n     - 필요한 파일이나 종속성을 찾을 수 없음\n\n4. **Task Breakdown**:\n   - 구체적이고 실행 가능한 항목 생성\n   - 복잡한 작업을 더 작고 관리 가능한 단계로 분해\n   - 명확하고 설명적인 작업 이름 사용\n   - 항상 두 형태 모두 제공:\n     - content: \"Fix authentication bug\"\n     - activeForm: \"Fixing authentication bug\"\n\n의심스러우면 이 도구를 사용하세요. 작업 관리에 적극적인 것은 세심함을 보여주고 모든 요구사항을 성공적으로 완료하는 것을 보장합니다.\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "todos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "content": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "enum": ["pending", "in_progress", "completed"]
+              },
+              "activeForm": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": ["content", "status", "activeForm"],
+            "additionalProperties": false
+          },
+          "description": "업데이트된 todo 목록"
+        }
+      },
+      "required": ["todos"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "WebSearch",
+    "description": "\n- Claude가 웹을 검색하고 결과를 사용하여 응답 정보 제공 가능\n- 현재 이벤트와 최근 데이터에 대한 최신 정보 제공\n- markdown 하이퍼링크로 링크를 포함한 검색 결과 블록으로 형식화된 검색 결과 정보 반환\n- Claude의 knowledge cutoff를 넘는 정보에 접근할 때 이 도구 사용\n- 검색은 단일 API 호출 내에서 자동으로 수행\n\nCRITICAL REQUIREMENT - 반드시 따라야 합니다:\n  - 사용자의 질문에 답한 후, 응답 끝에 \"Sources:\" 섹션을 **반드시** 포함해야 합니다\n  - Sources 섹션에서 검색 결과의 모든 관련 URL을 markdown 하이퍼링크로 나열: [Title](URL)\n  - 이것은 **필수**입니다 - 응답에 소스 포함을 **절대** 건너뛰지 마세요\n  - 예제 형식:\n\n    [Your answer here]\n\n    Sources:\n    - [Source Title 1](https://example.com/1)\n    - [Source Title 2](https://example.com/2)\n\nUsage notes:\n  - 특정 웹사이트를 포함하거나 차단하는 도메인 필터링 지원\n  - 웹 검색은 미국에서만 사용 가능\n  - <env>의 \"Today's date\"를 고려하세요. 예를 들어, <env>가 \"Today's date: 2025-07-01\"이라고 하고 사용자가 최신 문서를 원하면, 검색 쿼리에 2024를 사용하지 마세요. 2025를 사용하세요.\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 2,
+          "description": "사용할 검색 쿼리"
+        },
+        "allowed_domains": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "이 도메인의 검색 결과만 포함"
+        },
+        "blocked_domains": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "이 도메인의 검색 결과를 **절대** 포함하지 않음"
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "BashOutput",
+    "description": "\n- 실행 중이거나 완료된 백그라운드 bash shell의 출력을 검색\n- shell을 식별하는 shell_id 파라미터를 받음\n- 항상 마지막 확인 이후의 새 출력만 반환\n- shell 상태와 함께 stdout과 stderr 출력 반환\n- 패턴과 일치하는 줄만 표시하는 선택적 regex 필터링 지원\n- 장시간 실행되는 shell의 출력을 모니터링하거나 확인해야 할 때 이 도구 사용\n- /tasks 명령으로 Shell ID를 찾을 수 있음\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "bash_id": {
+          "type": "string",
+          "description": "출력을 검색할 백그라운드 shell의 ID"
+        },
+        "filter": {
+          "type": "string",
+          "description": "출력 줄을 필터링할 선택적 정규 표현식. 이 regex와 일치하는 줄만 결과에 포함됩니다. 일치하지 않는 줄은 더 이상 읽을 수 없게 됩니다."
+        }
+      },
+      "required": ["bash_id"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "KillShell",
+    "description": "\n- ID로 실행 중인 백그라운드 bash shell을 종료\n- 종료할 shell을 식별하는 shell_id 파라미터를 받음\n- 성공 또는 실패 상태 반환\n- 장시간 실행되는 shell을 종료해야 할 때 이 도구 사용\n- /tasks 명령으로 Shell ID를 찾을 수 있음\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "shell_id": {
+          "type": "string",
+          "description": "종료할 백그라운드 shell의 ID"
+        }
+      },
+      "required": ["shell_id"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "AskUserQuestion",
+    "description": "실행 중 사용자에게 질문해야 할 때 이 도구를 사용하세요. 다음을 할 수 있습니다:\n1. 사용자 선호도나 요구사항 수집\n2. 모호한 지시 명확화\n3. 작업 중 구현 선택에 대한 결정 받기\n4. 사용자에게 어떤 방향으로 갈지 선택지 제공\n\nUsage notes:\n- 사용자는 항상 \"Other\"를 선택하여 사용자 정의 텍스트 입력 제공 가능\n- 질문에 여러 답변을 선택할 수 있게 하려면 multiSelect: true 사용\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "question": {
+                "type": "string",
+                "description": "사용자에게 물어볼 완전한 질문. 명확하고 구체적이며 물음표로 끝나야 합니다. 예: \"Which library should we use for date formatting?\" multiSelect가 true면 그에 맞게 문구 작성, 예: \"Which features do you want to enable?\""
+              },
+              "header": {
+                "type": "string",
+                "description": "칩/태그로 표시되는 매우 짧은 레이블 (최대 12자). 예: \"Auth method\", \"Library\", \"Approach\"."
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "description": "사용자가 보고 선택할 이 옵션의 표시 텍스트. 간결하게 (1-5 단어) 선택을 명확히 설명해야 합니다."
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "이 옵션이 무엇을 의미하는지 또는 선택하면 어떻게 되는지 설명. trade-off나 영향에 대한 context 제공에 유용."
+                    }
+                  },
+                  "required": ["label", "description"],
+                  "additionalProperties": false
+                },
+                "minItems": 2,
+                "maxItems": 4,
+                "description": "이 질문에 사용 가능한 선택지. 2-4개의 옵션이 있어야 합니다. 각 옵션은 별개의, 상호 배타적인 선택이어야 합니다 (multiSelect가 활성화되지 않은 경우). 'Other' 옵션은 없어야 하며, 자동으로 제공됩니다."
+              },
+              "multiSelect": {
+                "type": "boolean",
+                "description": "사용자가 하나가 아닌 여러 옵션을 선택할 수 있게 하려면 true로 설정. 선택지가 상호 배타적이지 않을 때 사용."
+              }
+            },
+            "required": ["question", "header", "options", "multiSelect"],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "description": "사용자에게 물어볼 질문 (1-4개)"
+        },
+        "answers": {
+          "type": "object",
+          "additionalProperties": {"type": "string"},
+          "description": "permission 컴포넌트가 수집한 사용자 답변"
+        }
+      },
+      "required": ["questions"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "Skill",
+    "description": "메인 대화 내에서 skill 실행\n\n<skills_instructions>\n사용자가 작업 수행을 요청하면, 아래의 사용 가능한 skill 중 작업을 더 효과적으로 완료하는 데 도움이 될 수 있는 것이 있는지 확인하세요. Skill은 특화된 기능과 도메인 지식을 제공합니다.\n\nHow to use skills:\n- skill 이름만으로 이 도구를 사용하여 skill 호출 (인자 없음)\n- skill을 호출하면 <command-message>The \"{name}\" skill is loading</command-message>가 표시됩니다\n- skill의 프롬프트가 확장되어 작업 완료 방법에 대한 자세한 지침 제공\n- Examples:\n  - `skill: \"pdf\"` - pdf skill 호출\n  - `skill: \"xlsx\"` - xlsx skill 호출\n  - `skill: \"ms-office-suite:pdf\"` - 완전한 이름으로 호출\n\nImportant:\n- 아래 <available_skills>에 나열된 skill만 사용\n- 이미 실행 중인 skill을 호출하지 마세요\n- 내장 CLI 명령 (/help, /clear 등)에는 이 도구를 사용하지 마세요\n</skills_instructions>\n\n<available_skills>\n\n</available_skills>\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "skill": {
+          "type": "string",
+          "description": "skill 이름 (인자 없음). 예: \"pdf\" 또는 \"xlsx\""
+        }
+      },
+      "required": ["skill"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "SlashCommand",
+    "description": "메인 대화 내에서 slash command 실행\n\nHow slash commands work:\n이 도구를 사용하거나 사용자가 slash command를 입력하면 <command-message>{name} is running…</command-message>가 표시되고 확장된 프롬프트가 뒤따릅니다. 예를 들어, .claude/commands/foo.md에 \"Print today's date\"가 포함되어 있으면, /foo가 다음 메시지에서 해당 프롬프트로 확장됩니다.\n\nUsage:\n- `command` (필수): 인자를 포함한 실행할 slash command\n- Example: `command: \"/review-pr 123\"`\n\nIMPORTANT: 아래 Available Commands 목록에 나타나는 사용자 정의 slash command에만 이 도구를 사용하세요. 다음에는 사용하지 마세요:\n- 내장 CLI 명령 (/help, /clear 등)\n- 목록에 없는 명령\n- 존재할 것 같지만 나열되지 않은 명령\n\nNotes:\n- 사용자가 여러 slash command를 요청하면, 각각 순차적으로 실행하고 각각이 처리되었는지 확인하기 위해 <command-message>{name} is running…</command-message>를 확인\n- 이미 실행 중인 명령을 호출하지 마세요. 예를 들어, <command-message>foo is running…</command-message>가 보이면, \"/foo\"로 이 도구를 사용하지 **마세요** - 다음 메시지에서 확장된 프롬프트를 처리하세요\n- 설명이 있는 사용자 정의 slash command만 Available Commands에 나열됩니다. 사용자의 명령이 나열되지 않으면 slash command 파일을 확인하고 문서를 참조하라고 요청하세요.\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "인자와 함께 실행할 slash command, 예: \"/review-pr 123\""
+        }
+      },
+      "required": ["command"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "EnterPlanMode",
+    "description": "구현 전에 신중한 계획과 탐색이 필요한 복잡한 작업을 만났을 때 이 도구를 사용하세요. 이 도구는 코드베이스를 철저히 탐색하고 구현 접근 방식을 설계할 수 있는 plan mode로 전환합니다.\n\n## When to Use This Tool\n\n다음 조건 중 **하나라도** 해당되면 EnterPlanMode 사용:\n\n1. **여러 유효한 접근법**: 작업이 각각 trade-off가 있는 여러 다른 방법으로 해결 가능\n   - Example: \"Add caching to the API\" - Redis, in-memory, file-based 등 사용 가능\n   - Example: \"Improve performance\" - 많은 최적화 전략 가능\n\n2. **중요한 아키텍처 결정**: 작업에 아키텍처 패턴 간 선택 필요\n   - Example: \"Add real-time updates\" - WebSockets vs SSE vs polling\n   - Example: \"Implement state management\" - Redux vs Context vs custom solution\n\n3. **대규모 변경**: 작업이 많은 파일이나 시스템에 영향\n   - Example: \"Refactor the authentication system\"\n   - Example: \"Migrate from REST to GraphQL\"\n\n4. **불명확한 요구사항**: 전체 범위를 이해하기 전에 탐색 필요\n   - Example: \"Make the app faster\" - 프로파일링하고 병목 지점 식별 필요\n   - Example: \"Fix the bug in checkout\" - 근본 원인 조사 필요\n\n5. **사용자 입력 필요**: 시작 전에 명확화 질문이 필요할 것\n   - 접근 방식을 명확히 하기 위해 AskUserQuestion을 사용할 것이라면, 대신 EnterPlanMode 고려\n   - Plan mode는 먼저 탐색한 다음 context와 함께 옵션 제시 가능\n\n## When NOT to Use This Tool\n\n다음에는 EnterPlanMode 사용하지 마세요:\n- 명확한 구현이 있는 간단하고 직접적인 작업\n- 해결책이 명확한 작은 버그 수정\n- 단일 함수나 작은 기능 추가\n- 구현 방법에 이미 자신 있는 작업\n- 연구 전용 작업 (대신 explore 에이전트와 함께 Task 도구 사용)\n\n## What Happens in Plan Mode\n\nPlan mode에서는:\n1. Glob, Grep, Read 도구를 사용하여 코드베이스를 철저히 탐색\n2. 기존 패턴과 아키텍처 이해\n3. 구현 접근 방식 설계\n4. 승인을 위해 사용자에게 계획 제시\n5. 접근 방식을 명확히 해야 하면 AskUserQuestion 사용\n6. 구현 준비가 되면 ExitPlanMode로 plan mode 종료\n\n## Examples\n\n### GOOD - EnterPlanMode 사용:\nUser: \"Add user authentication to the app\"\n- 아키텍처 결정 필요 (session vs JWT, 토큰 저장 위치, 미들웨어 구조)\n\nUser: \"Optimize the database queries\"\n- 여러 접근법 가능, 먼저 프로파일링 필요, 상당한 영향\n\nUser: \"Implement dark mode\"\n- 테마 시스템에 대한 아키텍처 결정, 많은 컴포넌트에 영향\n\n### BAD - EnterPlanMode 사용하지 마세요:\nUser: \"Fix the typo in the README\"\n- 직접적, 계획 불필요\n\nUser: \"Add a console.log to debug this function\"\n- 간단, 명확한 구현\n\nUser: \"What files handle routing?\"\n- 연구 작업, 구현 계획 아님\n\n## Important Notes\n\n- 이 도구는 사용자 승인 **필요** - plan mode 진입에 동의해야 함\n- 사용 시기를 신중하게 생각하세요 - 불필요한 plan mode는 간단한 작업을 느리게 함\n- 사용 여부가 불확실하면, 구현 시작 쪽으로 기울이세요\n- 항상 사용자에게 \"Would you like me to plan this out first?\"라고 물어볼 수 있음\n",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "mcp__context7__resolve-library-id",
+    "description": "패키지/제품 이름을 Context7 호환 라이브러리 ID로 해석하고 일치하는 라이브러리 목록을 반환합니다.\n\n사용자가 쿼리에서 '/org/project' 또는 '/org/project/version' 형식의 라이브러리 ID를 명시적으로 제공하지 않는 한, 'get-library-docs' 전에 유효한 Context7 호환 라이브러리 ID를 얻기 위해 이 함수를 **반드시** 호출해야 합니다.\n\nSelection Process:\n1. 쿼리를 분석하여 사용자가 찾는 라이브러리/패키지 이해\n2. 다음을 기반으로 가장 관련성 높은 매치 반환:\n- 쿼리에 대한 이름 유사성 (정확한 매치 우선)\n- 쿼리 의도에 대한 설명 관련성\n- 문서 커버리지 (더 높은 Code Snippet 수를 가진 라이브러리 우선)\n- 소스 평판 (High 또는 Medium 평판의 라이브러리를 더 권위 있게 고려)\n- Benchmark Score: 품질 지표 (100이 최고 점수)\n\nResponse Format:\n- 명확하게 표시된 섹션에서 선택한 라이브러리 ID 반환\n- 이 라이브러리를 선택한 이유에 대한 간략한 설명 제공\n- 여러 좋은 매치가 있으면 인정하되 가장 관련성 높은 것으로 진행\n- 좋은 매치가 없으면 명확히 밝히고 쿼리 수정 제안\n\n모호한 쿼리의 경우, 최선의 추측 매치로 진행하기 전에 명확화를 요청하세요.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "libraryName": {
+          "type": "string",
+          "description": "Context7 호환 라이브러리 ID를 검색하고 가져올 라이브러리 이름."
+        }
+      },
+      "required": ["libraryName"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "mcp__context7__get-library-docs",
+    "description": "라이브러리의 최신 문서를 가져옵니다. 사용자가 쿼리에서 '/org/project' 또는 '/org/project/version' 형식의 라이브러리 ID를 명시적으로 제공하지 않는 한, 이 도구를 사용하는 데 필요한 정확한 Context7 호환 라이브러리 ID를 얻기 위해 먼저 'resolve-library-id'를 호출해야 합니다. API 레퍼런스와 코드 예제에는 mode='code' (기본값)를 사용하고, 개념 가이드, 설명 정보, 아키텍처 질문에는 mode='info'를 사용하세요.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "context7CompatibleLibraryID": {
+          "type": "string",
+          "description": "'resolve-library-id'에서 검색했거나 '/org/project' 또는 '/org/project/version' 형식으로 사용자 쿼리에서 직접 가져온 정확한 Context7 호환 라이브러리 ID (예: '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87')."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["code", "info"],
+          "default": "code",
+          "description": "문서 모드: API 레퍼런스와 코드 예제에 'code' (기본값), 개념 가이드, 설명 정보, 아키텍처 질문에 'info'."
+        },
+        "topic": {
+          "type": "string",
+          "description": "문서를 집중할 주제 (예: 'hooks', 'routing')."
+        },
+        "page": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "페이지네이션을 위한 페이지 번호 (시작: 1, 기본값: 1). context가 충분하지 않으면 같은 topic으로 page=2, page=3, page=4 등을 시도하세요."
+        }
+      },
+      "required": ["context7CompatibleLibraryID"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  }
+]
