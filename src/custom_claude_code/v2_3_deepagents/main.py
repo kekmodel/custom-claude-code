@@ -21,6 +21,7 @@ from prompt_toolkit.history import InMemoryHistory
 from .config import create_model, config
 from .prompts import get_system_prompt
 from .middleware import get_custom_middleware, ALL_CUSTOM_TOOLS
+from .subagents import get_subagents
 from .ui import console, StreamingUI, display_welcome, display_help, display_error, display_todos
 
 load_dotenv()
@@ -33,27 +34,6 @@ SESSION_ID = str(uuid.uuid4())[:8]
 class StreamInterrupted(Exception):
     """스트리밍 중단 예외 (Ctrl+C)"""
     pass
-
-
-def get_subagents():
-    """Subagent 목록 반환
-
-    Note: general-purpose는 DeepAgents가 자동으로 추가함
-    """
-    return [
-        {
-            "name": "Explore",
-            "description": "코드베이스 탐색 전문. 파일 패턴 검색, 키워드 검색, 아키텍처 분석. 읽기 전용.",
-            "system_prompt": "당신은 코드베이스 탐색 전문 Explore agent입니다. 파일 탐색과 분석만 수행합니다.",
-            "tools": [],  # 기본 filesystem 도구만 사용
-        },
-        {
-            "name": "Plan",
-            "description": "구현 계획 수립 전문. 기능 구현, 버그 수정, 리팩토링 계획. 읽기 전용.",
-            "system_prompt": "당신은 구현 계획 수립 전문 Plan agent입니다. 계획 수립만 수행합니다.",
-            "tools": [],
-        },
-    ]
 
 
 def create_agent():
