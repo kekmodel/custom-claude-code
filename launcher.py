@@ -1,7 +1,7 @@
 """
 🚀 Custom Claude Code - Interactive Launcher
 
-4가지 버전을 선택해서 직접 테스트할 수 있는 UI
+7가지 버전을 선택해서 직접 테스트할 수 있는 UI
 """
 
 import asyncio
@@ -25,7 +25,7 @@ def show_welcome():
     console.print("╔" + "=" * 78 + "╗", style="bold magenta")
     console.print("║" + " " * 20 + "🚀 CUSTOM CLAUDE CODE LAUNCHER" + " " * 28 + "║", style="bold magenta")
     console.print("║" + " " * 78 + "║", style="bold magenta")
-    console.print("║" + " " * 15 + "4가지 버전으로 구현된 Claude Code를 테스트하세요!" + " " * 15 + "║", style="bold magenta")
+    console.print("║" + " " * 15 + "7가지 버전으로 구현된 Claude Code를 테스트하세요!" + " " * 15 + "║", style="bold magenta")
     console.print("╚" + "=" * 78 + "╝", style="bold magenta")
     console.print()
 
@@ -34,9 +34,9 @@ def show_version_comparison():
     """버전 비교 테이블"""
     table = Table(title="📊 버전 비교", show_header=True, header_style="bold cyan")
 
-    table.add_column("버전", style="bold", width=18)
-    table.add_column("프레임워크", width=20)
-    table.add_column("코드", width=12)
+    table.add_column("버전", style="bold", width=20)
+    table.add_column("프레임워크", width=22)
+    table.add_column("코드", width=10)
     table.add_column("특징", width=28)
 
     table.add_row(
@@ -52,6 +52,27 @@ def show_version_comparison():
         "~450줄",
         "✅ 자동 워크플로우",
         style="blue"
+    )
+    table.add_row(
+        "v2.1: Improved ⭐",
+        "LangGraph Simplified",
+        "~585줄",
+        "✅ 14도구, 클린 코드",
+        style="cyan"
+    )
+    table.add_row(
+        "v2.2: Hooks 🔬",
+        "LangGraph + Hooks",
+        "~1,400줄",
+        "✅ 보안 검증, 파일 추출",
+        style="cyan"
+    )
+    table.add_row(
+        "v2.3: DeepAgents 🆕",
+        "LangChain DeepAgents",
+        "~400줄",
+        "✅ Middleware 아키텍처",
+        style="bright_cyan"
     )
     table.add_row(
         "v3: Agents SDK",
@@ -76,12 +97,15 @@ def show_menu():
     """메인 메뉴"""
     console.print(Panel(
         "[bold cyan]버전을 선택하세요:[/bold cyan]\n\n"
-        "  [bold green]1[/bold green] → v1: OpenAI API (직접 구현, 완전 제어)\n"
-        "  [bold blue]2[/bold blue] → v2: LangGraph (StateGraph, 자동 워크플로우)\n"
-        "  [bold yellow]3[/bold yellow] → v3: OpenAI Agents SDK (Agent.as_tool())\n"
-        "  [bold magenta]4[/bold magenta] → v4: Claude Agent SDK (Haiku 4.5 + 서브에이전트)\n\n"
-        "  [bold red]q[/bold red] → 종료\n"
-        "  [bold dim]c[/bold dim] → 버전 비교 보기",
+        "  [bold green]1[/bold green]   → v1: OpenAI API (직접 구현, 완전 제어)\n"
+        "  [bold blue]2[/bold blue]   → v2: LangGraph (StateGraph, 자동 워크플로우)\n"
+        "  [bold cyan]2.1[/bold cyan] → v2.1: LangGraph Improved ⭐ (14도구, 권장)\n"
+        "  [bold cyan]2.2[/bold cyan] → v2.2: LangGraph Hooks 🔬 (보안 검증, 연구용)\n"
+        "  [bold bright_cyan]2.3[/bold bright_cyan] → v2.3: DeepAgents 🆕 (Middleware 아키텍처)\n"
+        "  [bold yellow]3[/bold yellow]   → v3: OpenAI Agents SDK (Agent.as_tool())\n"
+        "  [bold magenta]4[/bold magenta]   → v4: Claude Agent SDK (Haiku 4.5 + 서브에이전트)\n\n"
+        "  [bold red]q[/bold red]   → 종료\n"
+        "  [bold dim]c[/bold dim]   → 버전 비교 보기",
         title="🎯 메뉴",
         border_style="cyan"
     ))
@@ -131,6 +155,48 @@ async def run_v3():
         console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
 
+async def run_v2_1():
+    """v2.1 실행"""
+    console.print("\n[bold cyan]🚀 Starting v2.1: LangGraph Improved...[/bold cyan]\n")
+    try:
+        from custom_claude_code.v2_1_langgraph_improved.main import run_conversation_loop
+        await run_conversation_loop()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]v2.1 종료됨[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        import traceback
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
+
+async def run_v2_2():
+    """v2.2 실행"""
+    console.print("\n[bold cyan]🚀 Starting v2.2: LangGraph Hooks...[/bold cyan]\n")
+    try:
+        from custom_claude_code.v2_2_langgraph_hooks.main import run_conversation_loop
+        await run_conversation_loop()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]v2.2 종료됨[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        import traceback
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
+
+async def run_v2_3():
+    """v2.3 실행"""
+    console.print("\n[bold bright_cyan]🚀 Starting v2.3: DeepAgents...[/bold bright_cyan]\n")
+    try:
+        from custom_claude_code.v2_3_deepagents.main import run_conversation_loop
+        await run_conversation_loop()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]v2.3 종료됨[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        import traceback
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+
+
 async def run_v4():
     """v4 실행"""
     console.print("\n[bold magenta]🚀 Starting v4: Claude Agent SDK...[/bold magenta]\n")
@@ -156,8 +222,8 @@ async def main():
 
         choice = Prompt.ask(
             "\n[bold cyan]선택[/bold cyan]",
-            choices=["1", "2", "3", "4", "c", "q"],
-            default="1"
+            choices=["1", "2", "2.1", "2.2", "2.3", "3", "4", "c", "q"],
+            default="2.1"
         )
 
         if choice == "q":
@@ -179,6 +245,15 @@ async def main():
 
         elif choice == "2":
             await run_v2()
+
+        elif choice == "2.1":
+            await run_v2_1()
+
+        elif choice == "2.2":
+            await run_v2_2()
+
+        elif choice == "2.3":
+            await run_v2_3()
 
         elif choice == "3":
             await run_v3()

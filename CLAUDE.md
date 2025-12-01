@@ -4,10 +4,10 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-**Research and educational project** implementing AI coding assistants in 6 different ways. Written in Korean but code is universal.
+**Research and educational project** implementing AI coding assistants in 7 different ways. Written in Korean but code is universal.
 
 **What's Implemented**:
-- **6 versions**: v1 (OpenAI API), v2 (LangGraph), v2.1 (Improved), v2.2 (Hooks), v3 (Agents SDK), v4 (Claude SDK)
+- **7 versions**: v1 (OpenAI API), v2 (LangGraph), v2.1 (Improved), v2.2 (Hooks), v2.3 (DeepAgents), v3 (Agents SDK), v4 (Claude SDK)
 - **16 core tools**: File ops, search, execution, web, agents, management
 - **4 subagent types**: general-purpose, Explore, Plan, statusline-setup
 - **LLM-driven conversation loop** with flexible tool execution
@@ -26,6 +26,7 @@ uv run python -m custom_claude_code.v1_openai.main            # v1: OpenAI API
 uv run python -m custom_claude_code.v2_langgraph.main         # v2: LangGraph + compression
 uv run python -m custom_claude_code.v2_1_langgraph_improved.main  # v2.1: Simplified ⭐
 uv run python -m custom_claude_code.v2_2_langgraph_hooks.main     # v2.2: Hook System
+uv run python -m custom_claude_code.v2_3_deepagents.main          # v2.3: DeepAgents
 uv run python -m custom_claude_code.v3_openai_agents.main    # v3: Agents SDK
 uv run python -m custom_claude_code.v4_claude_agent.main     # v4: Claude SDK
 
@@ -43,6 +44,7 @@ pytest tests/                           # All tests
 | v2 | ~2,376 | StateGraph | Message compression (100k) | Production |
 | v2.1 ⭐ | ~585 | Simplified | 14 tools, clean code | Recommended |
 | v2.2 🔬 | ~1,400 | Hook System | Security validation, file extraction | Research |
+| v2.3 🆕 | ~400 | DeepAgents | Middleware architecture, SubAgents | Modern |
 | v3 | ~516 | Agent+Runner | Minimal boilerplate | Prototyping |
 | v4 | ~311 | ClaudeSDK | Config-driven, MCP native | Claude-native |
 
@@ -70,6 +72,13 @@ pytest tests/                           # All tests
 - **Permission System**: can_use_tool high-level API
 - **Settings Loader**: CLAUDE.md auto-loading
 - **Research/educational** - demonstrates Claude Code's Hook System architecture
+
+### v2.3: DeepAgents 🆕
+- **LangChain DeepAgents**: Official `create_deep_agent` function
+- **Middleware Architecture**: TodoListMiddleware, FilesystemMiddleware, SubAgentMiddleware, SummarizationMiddleware
+- **Built-in Features**: Auto-summarization (170k tokens), File system access, Task planning
+- **Custom Middleware**: ExecutionMiddleware (bash), SearchMiddleware (grep), WebMiddleware (search/fetch)
+- **Modern Pattern**: Composable, production-ready framework
 
 ### v3: OpenAI Agents SDK
 - `Agent.as_tool()` for subagents
@@ -173,13 +182,36 @@ validation_hook = create_bash_validation_hook(
 register_hook('PreToolUse', validation_hook, matcher='Bash')
 ```
 
+### v2.3 Middleware Usage
+
+```python
+from deepagents import create_deep_agent
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.tools import tool
+
+@tool
+def my_custom_tool(param: str) -> str:
+    """Custom tool description."""
+    return f"Result: {param}"
+
+class MyMiddleware(AgentMiddleware):
+    tools = [my_custom_tool]
+    system_prompt = "Use my_custom_tool when..."
+
+agent = create_deep_agent(
+    model="anthropic:claude-sonnet-4-20250514",
+    middleware=[MyMiddleware()]
+)
+```
+
 ## Key Constraints
 
 1. **Don't modify Korean docs** without explicit request
-2. **Maintain backward compatibility** across all 6 versions
+2. **Maintain backward compatibility** across all 7 versions
 3. **Test changes** across applicable versions
 4. **v2.1/v2.2**: Don't remove tag/depth filtering (critical!)
 5. **v2.2**: Hook System is research/educational, not production
+6. **v2.3**: Requires `deepagents` package (`uv add deepagents`)
 
 ## Troubleshooting
 
@@ -217,4 +249,5 @@ uv run python test_v2.2_hooks.py
 - **Prompt Caching**: Essential for all versions
 - **Streaming**: Supported across all versions
 - **Async I/O**: All file/network ops are non-blocking
-- **Parallel Tools**: LangGraph handles automatically (v2/v2.1/v2.2)
+- **Parallel Tools**: LangGraph handles automatically (v2/v2.1/v2.2/v2.3)
+- **Auto-Summarization**: v2.3 summarizes at 170k tokens via SummarizationMiddleware
