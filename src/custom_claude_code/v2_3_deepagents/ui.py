@@ -195,7 +195,7 @@ def display_welcome():
             "[bold]Custom Claude Code - Version 2.3: DeepAgents[/bold]\n\n"
             "Built on LangChain DeepAgents framework\n"
             "Features: Middleware, SubAgents, Checkpointing\n\n"
-            "Commands: quit, clear, help",
+            "Commands: quit, clear, help | Ctrl+C: 중단/종료",
             title="Welcome",
             border_style="magenta",
         )
@@ -210,6 +210,11 @@ def display_help():
 - quit: Exit the program
 - clear: Clear conversation history
 - help: Show this help
+
+**Ctrl+C:**
+- 스트리밍 중: 중단 후 새 지시 입력
+- 프롬프트에서: 종료
+- 2초 내 연속: 즉시 종료
 
 **DeepAgents Built-in Tools:**
 - write_todos: Task planning and tracking

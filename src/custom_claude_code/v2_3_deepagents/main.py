@@ -7,8 +7,11 @@ v2.3: DeepAgents 기반 메인 실행 루프
 - 내장 Middleware 활용 (TodoList, Filesystem, SubAgent, Summarization)
 - 커스텀 Middleware로 bash, grep, web 도구 추가
 - MemorySaver checkpointer로 대화 스레드 체크포인팅
+- Ctrl+C로 실행 중단 후 새 지시 가능
 """
 
+import asyncio
+import time
 import uuid
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
@@ -25,6 +28,11 @@ prompt_session = PromptSession(history=InMemoryHistory())
 
 # 세션 ID 생성 (프로그램 실행당 하나)
 SESSION_ID = str(uuid.uuid4())[:8]
+
+
+class StreamInterrupted(Exception):
+    """스트리밍 중단 예외 (Ctrl+C)"""
+    pass
 
 
 def get_subagents():
@@ -185,6 +193,10 @@ async def process_stream(agent, messages: list):
                     if "todos" in output and output["todos"]:
                         display_todos(output["todos"])
 
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # Ctrl+C로 중단됨 - UI 정리 후 예외 발생
+        raise StreamInterrupted()
+
     finally:
         if in_thinking_block:
             ui.end_thinking()
@@ -196,7 +208,13 @@ async def process_stream(agent, messages: list):
 
 
 async def run_conversation_loop():
-    """메인 대화 루프"""
+    """메인 대화 루프
+
+    Ctrl+C 동작:
+    - 스트리밍 중: 중단 후 새 지시 입력 가능
+    - 프롬프트에서: 종료
+    - 2초 내 연속 Ctrl+C: 즉시 종료
+    """
     display_welcome()
 
     agent = create_agent()
@@ -205,6 +223,7 @@ async def run_conversation_loop():
         return
 
     messages = []
+    last_interrupt_time = 0.0
 
     while True:
         try:
@@ -237,6 +256,21 @@ async def run_conversation_loop():
             if result_messages:
                 messages = list(result_messages)
 
+        except (StreamInterrupted, KeyboardInterrupt, asyncio.CancelledError):
+            # Ctrl+C로 스트리밍 중단됨
+            current_time = time.time()
+
+            # 2초 내 연속 Ctrl+C면 종료
+            if current_time - last_interrupt_time < 2.0:
+                console.print("\n[yellow]Goodbye![/yellow]")
+                break
+
+            last_interrupt_time = current_time
+            console.print("\n[yellow]중단됨. 새 지시를 입력하세요. (2초 내 Ctrl+C: 종료)[/yellow]")
+            # 마지막 사용자 메시지 제거 (재입력 받을 것이므로)
+            if messages and isinstance(messages[-1], HumanMessage):
+                messages.pop()
+
         except Exception as e:
             display_error(e)
 
@@ -247,5 +281,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Goodbye![/yellow]")
