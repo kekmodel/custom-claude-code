@@ -106,6 +106,22 @@ def bash_background(command: str, description: str = "") -> str:
         return f"[ERROR] Failed to start background process: {type(e).__name__}: {str(e)}"
 
 
+def _read_stream_nonblocking(stream, prefix: str = "") -> list[str]:
+    """Non-blocking으로 스트림에서 라인 읽기"""
+    import select
+
+    lines = []
+    try:
+        while select.select([stream], [], [], 0)[0]:
+            line = stream.readline()
+            if not line:
+                break
+            lines.append(f"{prefix}{line.rstrip()}" if prefix else line.rstrip())
+    except (IOError, OSError, ValueError):
+        pass
+    return lines
+
+
 @tool(parse_docstring=True)
 def bash_output(shell_id: str, filter: Optional[str] = None) -> str:
     """Retrieve output from a background bash shell.
@@ -128,30 +144,9 @@ def bash_output(shell_id: str, filter: Optional[str] = None) -> str:
 
         # Non-blocking read
         if proc.stdout:
-            try:
-                import select
-                if select.select([proc.stdout], [], [], 0)[0]:
-                    line = proc.stdout.readline()
-                    while line:
-                        output_lines.append(line.rstrip())
-                        if not select.select([proc.stdout], [], [], 0)[0]:
-                            break
-                        line = proc.stdout.readline()
-            except (IOError, OSError, ValueError):
-                pass
-
+            output_lines.extend(_read_stream_nonblocking(proc.stdout))
         if proc.stderr:
-            try:
-                import select
-                if select.select([proc.stderr], [], [], 0)[0]:
-                    line = proc.stderr.readline()
-                    while line:
-                        output_lines.append(f"[stderr] {line.rstrip()}")
-                        if not select.select([proc.stderr], [], [], 0)[0]:
-                            break
-                        line = proc.stderr.readline()
-            except (IOError, OSError, ValueError):
-                pass
+            output_lines.extend(_read_stream_nonblocking(proc.stderr, "[stderr] "))
 
         # Apply filter
         if filter and output_lines:
