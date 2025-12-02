@@ -19,6 +19,53 @@ from langchain.agents.middleware import AgentMiddleware
 # 백그라운드 프로세스 관리
 BACKGROUND_PROCESSES: Dict[str, subprocess.Popen] = {}
 
+# web_fetch 설정
+REMOVE_TAGS = ["script", "style", "nav", "footer", "header", "aside", "iframe", "noscript"]
+CONTENT_SELECTORS = [
+    "article", "main", "[role='main']",
+    "#content", "#main-content", ".content", ".main-content"
+]
+MAX_CONTENT_LENGTH = 30000  # ~7,500 tokens
+
+# 위험한 명령어 패턴
+DANGEROUS_PATTERNS = [
+    "rm -rf /",
+    "rm -rf ~",
+    "rm -rf /*",
+    "mkfs",
+    "dd if=",
+    ":(){ :|:& };:",  # fork bomb
+    "> /dev/sda",
+    "chmod -R 777 /",
+    "chown -R",
+    "curl | sh",
+    "curl | bash",
+    "wget | sh",
+    "wget | bash",
+]
+
+# ripgrep 타입 → 확장자 매핑 (fallback용)
+TYPE_EXTENSIONS: Dict[str, str] = {
+    "py": "*.py",
+    "js": "*.js",
+    "ts": "*.ts",
+    "rust": "*.rs",
+    "go": "*.go",
+    "java": "*.java",
+    "c": "*.c",
+    "cpp": "*.cpp",
+    "h": "*.h",
+    "html": "*.html",
+    "css": "*.css",
+    "json": "*.json",
+    "yaml": "*.yaml",
+    "yml": "*.yml",
+    "md": "*.md",
+    "sh": "*.sh",
+    "sql": "*.sql",
+    "xml": "*.xml",
+}
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Bash 실행 도구
@@ -48,8 +95,7 @@ def run_bash(command: str, timeout: Optional[int] = None) -> str:
     timeout_seconds = (timeout / 1000) if timeout else 120
 
     # Safety check
-    dangerous_commands = ["rm -rf /", "mkfs", "dd if=", ":(){ :|:& };:"]
-    if any(danger in command for danger in dangerous_commands):
+    if any(danger in command for danger in DANGEROUS_PATTERNS):
         raise ValueError(f"Dangerous command blocked: {command}")
 
     try:
@@ -228,7 +274,7 @@ def grep_code(
     path: Optional[str] = None,
     glob: Optional[str] = None,
     output_mode: str = "files_with_matches",
-    type: Optional[str] = None,
+    file_type: Optional[str] = None,
     i: bool = False,
     n: bool = True,
     A: Optional[int] = None,
@@ -242,14 +288,14 @@ def grep_code(
     Usage:
     - ALWAYS use grep_code for search tasks
     - Supports full regex syntax
-    - Filter files with glob or type parameter
+    - Filter files with glob or file_type parameter
 
     Args:
         pattern: Regex pattern to search for
         path: Directory to search (defaults to cwd)
         glob: Glob pattern to filter files (e.g., "*.py")
         output_mode: "content", "files_with_matches" (default), or "count"
-        type: File type (e.g., "js", "py", "rust")
+        file_type: File type (e.g., "js", "py", "rust")
         i: Case insensitive search
         n: Show line numbers (default: true)
         A: Lines after match
@@ -286,8 +332,8 @@ def grep_code(
                 if B is not None:
                     cmd.extend(["-B", str(B)])
 
-        if type:
-            cmd.extend(["--type", type])
+        if file_type:
+            cmd.extend(["--type", file_type])
 
         if glob:
             cmd.extend(["--glob", glob])
@@ -316,10 +362,13 @@ def grep_code(
             flags |= re.DOTALL
         regex = re.compile(pattern, flags)
 
+        # file_type → glob 변환
+        file_glob = glob or TYPE_EXTENSIONS.get(file_type)
+
         matches = []
         for root, _, files in os.walk(search_path):
             for file in files:
-                if glob and not fnmatch.fnmatch(file, glob):
+                if file_glob and not fnmatch.fnmatch(file, file_glob):
                     continue
                 file_path = os.path.join(root, file)
                 try:
@@ -329,12 +378,24 @@ def grep_code(
                             if output_mode == "files_with_matches":
                                 matches.append(file_path)
                             elif output_mode == "content":
-                                for line_num, line in enumerate(content.splitlines(), 1):
+                                lines_list = content.splitlines()
+                                context_before = B if B is not None else (C if C is not None else 0)
+                                context_after = A if A is not None else (C if C is not None else 0)
+                                matched_ranges = set()
+
+                                for line_num, line in enumerate(lines_list):
                                     if regex.search(line):
-                                        if n:
-                                            matches.append(f"{file_path}:{line_num}:{line}")
-                                        else:
-                                            matches.append(f"{file_path}:{line}")
+                                        start = max(0, line_num - context_before)
+                                        end = min(len(lines_list), line_num + context_after + 1)
+                                        for ctx_num in range(start, end):
+                                            matched_ranges.add(ctx_num)
+
+                                for line_num in sorted(matched_ranges):
+                                    line = lines_list[line_num]
+                                    if n:
+                                        matches.append(f"{file_path}:{line_num + 1}:{line}")
+                                    else:
+                                        matches.append(f"{file_path}:{line}")
                             elif output_mode == "count":
                                 count = len(regex.findall(content))
                                 matches.append(f"{file_path}:{count}")
@@ -373,6 +434,17 @@ Example: grep_code("TODO", type="py", output_mode="content")"""
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+def _sync_ddgs_search(query: str, max_results: int) -> list[str]:
+    """동기 DuckDuckGo 검색 (to_thread용)"""
+    from ddgs import DDGS
+
+    results = []
+    with DDGS() as ddgs:
+        for r in ddgs.text(query, max_results=max_results):
+            results.append(f"**[{r['title']}]({r['href']})**\n{r['body']}\n")
+    return results
+
+
 @tool(parse_docstring=True)
 async def web_search(query: str, max_results: int = 5) -> str:
     """Search the web and return up-to-date information.
@@ -387,12 +459,9 @@ async def web_search(query: str, max_results: int = 5) -> str:
         Search results formatted as markdown
     """
     try:
-        from ddgs import DDGS
+        import asyncio
 
-        results = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(query, max_results=max_results):
-                results.append(f"**[{r['title']}]({r['href']})**\n{r['body']}\n")
+        results = await asyncio.to_thread(_sync_ddgs_search, query, max_results)
 
         if not results:
             return f"No results found for: {query}"
@@ -406,17 +475,16 @@ async def web_search(query: str, max_results: int = 5) -> str:
 
 
 @tool(parse_docstring=True)
-async def web_fetch(url: str, prompt: str = "Summarize the main content") -> str:
-    """Fetch and analyze content from a URL.
+async def web_fetch(url: str) -> str:
+    """Fetch content from a URL and return as markdown.
 
-    Retrieves HTML, extracts main content, and processes based on prompt.
+    Retrieves HTML and extracts main content as readable text.
 
     Args:
         url: The URL to fetch (must be HTTP/HTTPS)
-        prompt: What to extract (e.g., "Summarize", "Extract code examples")
 
     Returns:
-        Processed page content
+        Page content converted to markdown
     """
     try:
         import httpx
@@ -430,24 +498,17 @@ async def web_fetch(url: str, prompt: str = "Summarize the main content") -> str
         soup = BeautifulSoup(response.text, "html.parser")
 
         # Remove unwanted elements
-        for element in soup(["script", "style", "nav", "footer", "header", "aside", "iframe", "noscript"]):
+        for element in soup(REMOVE_TAGS):
             element.decompose()
 
         # Find main content
         main_content = None
-        for tag in ["article", "main", "[role='main']"]:
-            main_content = soup.select_one(tag)
+        for selector in CONTENT_SELECTORS:
+            main_content = soup.select_one(selector)
             if main_content:
                 break
-
         if not main_content:
-            for selector in ["#content", "#main-content", ".content", ".main-content"]:
-                main_content = soup.select_one(selector)
-                if main_content:
-                    break
-
-        if not main_content:
-            main_content = soup.body if soup.body else soup
+            main_content = soup.body or soup
 
         # Extract text
         def extract_text(element):
@@ -469,10 +530,18 @@ async def web_fetch(url: str, prompt: str = "Summarize the main content") -> str
                         if heading_text:
                             level = int(child.name[1])
                             lines.append(f"\n{'#' * level} {heading_text}\n")
+                    elif child.name == "p":
+                        p_text = child.get_text(strip=True)
+                        if p_text:
+                            lines.append(f"\n{p_text}\n")
                     elif child.name == "li":
                         li_text = child.get_text(strip=True)
                         if li_text:
                             lines.append(f"- {li_text}")
+                    elif child.name in ["blockquote"]:
+                        quote_text = child.get_text(strip=True)
+                        if quote_text:
+                            lines.append(f"\n> {quote_text}\n")
                     elif child.name not in ["script", "style"]:
                         lines.extend(extract_text(child))
             return lines
@@ -482,20 +551,19 @@ async def web_fetch(url: str, prompt: str = "Summarize the main content") -> str
         clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
 
         # Truncate if needed
-        max_length = 15000
-        if len(clean_text) > max_length:
-            truncate_point = clean_text.rfind('\n\n', 0, max_length)
-            if truncate_point > max_length * 0.8:
+        if len(clean_text) > MAX_CONTENT_LENGTH:
+            truncate_point = clean_text.rfind('\n\n', 0, MAX_CONTENT_LENGTH)
+            if truncate_point > MAX_CONTENT_LENGTH * 0.8:
                 clean_text = clean_text[:truncate_point]
             else:
-                clean_text = clean_text[:max_length]
+                clean_text = clean_text[:MAX_CONTENT_LENGTH]
             clean_text += "\n\n[Content truncated]"
 
         title = soup.title.string if soup.title else "No title"
-        return f"**URL**: {url}\n**Title**: {title}\n**Task**: {prompt}\n\n**Content**:\n\n{clean_text}"
+        return f"**URL**: {url}\n**Title**: {title}\n\n{clean_text}"
 
     except ImportError:
-        return "[ERROR] Required packages not installed. Run: pip install httpx beautifulsoup4"
+        return "[ERROR] Required packages not installed. Run: uv add httpx beautifulsoup4"
     except Exception as e:
         return f"[ERROR] Failed to fetch URL: {type(e).__name__}: {str(e)}"
 
